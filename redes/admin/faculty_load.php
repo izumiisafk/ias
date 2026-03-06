@@ -1,9 +1,9 @@
 <?php
-require_once 'config/db.php';
+require_once 'includes/auth.php'; require_once '../config/db.php';
 $page_title = 'Faculty Load - Class Scheduling System';
 ?>
 
-<?php include 'includes/header.php'; ?>
+<?php include '../includes/header.php'; ?>
 <?php include 'includes/sidebar.php'; ?>
 
 <div class="main-content">
@@ -28,8 +28,7 @@ $page_title = 'Faculty Load - Class Scheduling System';
                     </tr>
                 </thead>
                 <tbody>
-                    <?php
-                    $result = $conn->query("SELECT * FROM faculty ORDER BY faculty_id DESC");
+                    <?php $result = $conn->query("SELECT * FROM faculty ORDER BY faculty_id DESC");
                     while($row = $result->fetch_assoc()):
                     ?>
                     <tr>
@@ -55,4 +54,4 @@ $page_title = 'Faculty Load - Class Scheduling System';
     </div>
 </div>
 
-<?php include 'includes/footer.php'; ?>
+<?php include '../includes/footer.php'; ?>

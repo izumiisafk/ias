@@ -1,5 +1,5 @@
 <?php
-require_once 'config/db.php';
+require_once 'includes/auth.php'; require_once '../config/db.php';
 $page_title = 'Conflicts - Class Scheduling System';
 
 // ==========================
@@ -22,7 +22,7 @@ if ($result) {
 }
 ?>
 
-<?php include 'includes/header.php'; ?>
+<?php include '../includes/header.php'; ?>
 <?php include 'includes/sidebar.php'; ?>
 
 <div class="main-content">
@@ -72,5 +72,5 @@ if ($result) {
         </div>
     </div>
 </div>
-dawdawdawdawdawdawdawdawdawdwd
-<?php include 'includes/footer.php'; ?>
+
+<?php include '../includes/footer.php'; ?>

@@ -1,5 +1,5 @@
 CREATE DATABASE `class_scheduling`;
-USE `class_scheduling`;
+USE `bading`;
 
 -- =========================
 -- ACADEMIC TERMS

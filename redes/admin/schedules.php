@@ -1,5 +1,5 @@
 <?php
-require_once 'config/db.php';
+require_once 'includes/auth.php'; require_once '../config/db.php';
 $page_title = 'Schedules - Class Scheduling System';
 
 
@@ -8,17 +8,17 @@ $page_title = 'Schedules - Class Scheduling System';
 ================================================= */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-    // Get active term safely
-    $termStmt = $conn->prepare("SELECT term_id, term_name FROM terms WHERE status='Active' LIMIT 1");
+    // Get active term from academic_terms table
+    $termStmt = $conn->prepare("SELECT term_id, academic_year, semester FROM academic_terms WHERE is_active=1 LIMIT 1");
     $termStmt->execute();
     $termResult = $termStmt->get_result();
 
     if ($termResult->num_rows === 0) {
-        die("No active term found. Please activate a term first.");
+        die("No active term found. Please set an active term in the academic_terms table first.");
     }
 
     $termData = $termResult->fetch_assoc();
-    $term_id = $termData['term_id'];
+    $term_id  = $termData['term_id'];
 
     $stmt = $conn->prepare("
         INSERT INTO schedules 
@@ -39,8 +39,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     );
 
     if ($stmt->execute()) {
-
-        // Safe self reload (NO PATH ISSUES)
         echo "<script>
                 alert('Schedule added successfully!');
                 window.location.href = window.location.pathname;
@@ -57,9 +55,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 /* =================================================
    GET ACTIVE TERM
 ================================================= */
-$activeTerm = $conn->query("SELECT term_id, term_name FROM terms WHERE status='Active' LIMIT 1")->fetch_assoc();
-$active_term_id = $activeTerm['term_id'];
-$active_term_name = $activeTerm['term_name'];
+$activeTermRow = $conn->query("SELECT term_id, academic_year, semester FROM academic_terms WHERE is_active=1 LIMIT 1")->fetch_assoc();
+
+if (!$activeTermRow) {
+    // No active term yet — show friendly message instead of crashing
+    $active_term_id   = 0;
+    $active_term_name = 'No Active Term';
+} else {
+    $active_term_id   = $activeTermRow['term_id'];
+    $active_term_name = $activeTermRow['academic_year'] . ' - ' . $activeTermRow['semester'];
+}
 
 
 /* =================================================
@@ -92,14 +97,14 @@ $faculty  = $conn->query("SELECT * FROM faculty WHERE status='Active'");
 $rooms    = $conn->query("SELECT * FROM rooms WHERE status='Available'");
 ?>
 
-<?php include 'includes/header.php'; ?>
+<?php include '../includes/header.php'; ?>
 <?php include 'includes/sidebar.php'; ?>
 
 <div class="main-content">
     <div class="page-header d-flex justify-content-between align-items-center">
         <div>
             <h1>Schedule Management</h1>
-            <p>Active Term: <strong><?= $active_term_name; ?></strong></p>
+            <p>Active Term: <strong><?= htmlspecialchars($active_term_name); ?></strong></p>
         </div>
         <button class="btn-primary-custom" data-bs-toggle="modal" data-bs-target="#addScheduleModal">
             <i class="bi bi-plus-lg me-2"></i>Add Schedule
@@ -125,19 +130,19 @@ $rooms    = $conn->query("SELECT * FROM rooms WHERE status='Available'");
                     <?php if ($schedules && $schedules->num_rows > 0): ?>
                         <?php while($row = $schedules->fetch_assoc()): ?>
                         <tr>
-                            <td><strong><?= $row['section_name']; ?></strong></td>
-                            <td><?= $row['subject_name']; ?></td>
-                            <td><?= $row['first_name'] . ' ' . $row['last_name']; ?></td>
-                            <td><?= $row['room_name']; ?></td>
-                            <td><?= $row['day_of_week']; ?></td>
+                            <td><strong><?= htmlspecialchars($row['section_name']); ?></strong></td>
+                            <td><?= htmlspecialchars($row['subject_name']); ?></td>
+                            <td><?= htmlspecialchars($row['first_name'] . ' ' . $row['last_name']); ?></td>
+                            <td><?= htmlspecialchars($row['room_name']); ?></td>
+                            <td><?= htmlspecialchars($row['day_of_week']); ?></td>
                             <td><?= date("h:i A", strtotime($row['start_time'])); ?></td>
                             <td><?= date("h:i A", strtotime($row['end_time'])); ?></td>
-                            <td><span class="badge-success"><?= $row['status']; ?></span></td>
+                            <td><span class="badge-success"><?= htmlspecialchars($row['status']); ?></span></td>
                         </tr>
                         <?php endwhile; ?>
                     <?php else: ?>
                         <tr>
-                            <td colspan="8" class="text-center">No schedules found.</td>
+                            <td colspan="8" class="text-center py-3">No schedules found for this term.</td>
                         </tr>
                     <?php endif; ?>
                 </tbody>
@@ -160,24 +165,24 @@ $rooms    = $conn->query("SELECT * FROM rooms WHERE status='Available'");
                 <form method="POST">
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label>Section</label>
+                            <label class="form-label">Section</label>
                             <select name="section_id" class="form-select" required>
                                 <option value="">Select Section</option>
-                                <?php while($row = $sections->fetch_assoc()): ?>
+                                <?php if($sections) while($row = $sections->fetch_assoc()): ?>
                                     <option value="<?= $row['section_id']; ?>">
-                                        <?= $row['section_name']; ?>
+                                        <?= htmlspecialchars($row['section_name']); ?>
                                     </option>
                                 <?php endwhile; ?>
                             </select>
                         </div>
 
                         <div class="col-md-6 mb-3">
-                            <label>Subject</label>
+                            <label class="form-label">Subject</label>
                             <select name="subject_id" class="form-select" required>
                                 <option value="">Select Subject</option>
-                                <?php while($row = $subjects->fetch_assoc()): ?>
+                                <?php if($subjects) while($row = $subjects->fetch_assoc()): ?>
                                     <option value="<?= $row['subject_id']; ?>">
-                                        <?= $row['subject_name']; ?>
+                                        <?= htmlspecialchars($row['subject_name']); ?>
                                     </option>
                                 <?php endwhile; ?>
                             </select>
@@ -186,24 +191,24 @@ $rooms    = $conn->query("SELECT * FROM rooms WHERE status='Available'");
 
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label>Faculty</label>
+                            <label class="form-label">Faculty</label>
                             <select name="faculty_id" class="form-select" required>
                                 <option value="">Select Faculty</option>
-                                <?php while($row = $faculty->fetch_assoc()): ?>
+                                <?php if($faculty) while($row = $faculty->fetch_assoc()): ?>
                                     <option value="<?= $row['faculty_id']; ?>">
-                                        <?= $row['first_name'].' '.$row['last_name']; ?>
+                                        <?= htmlspecialchars($row['first_name'].' '.$row['last_name']); ?>
                                     </option>
                                 <?php endwhile; ?>
                             </select>
                         </div>
 
                         <div class="col-md-6 mb-3">
-                            <label>Room</label>
+                            <label class="form-label">Room</label>
                             <select name="room_id" class="form-select" required>
                                 <option value="">Select Room</option>
-                                <?php while($row = $rooms->fetch_assoc()): ?>
+                                <?php if($rooms) while($row = $rooms->fetch_assoc()): ?>
                                     <option value="<?= $row['room_id']; ?>">
-                                        <?= $row['room_name']; ?>
+                                        <?= htmlspecialchars($row['room_name']); ?>
                                     </option>
                                 <?php endwhile; ?>
                             </select>
@@ -212,7 +217,7 @@ $rooms    = $conn->query("SELECT * FROM rooms WHERE status='Available'");
 
                     <div class="row">
                         <div class="col-md-4 mb-3">
-                            <label>Day</label>
+                            <label class="form-label">Day</label>
                             <select name="day_of_week" class="form-select" required>
                                 <option>Monday</option>
                                 <option>Tuesday</option>
@@ -224,12 +229,12 @@ $rooms    = $conn->query("SELECT * FROM rooms WHERE status='Available'");
                         </div>
 
                         <div class="col-md-4 mb-3">
-                            <label>Start Time</label>
+                            <label class="form-label">Start Time</label>
                             <input type="time" name="start_time" class="form-control" required>
                         </div>
 
                         <div class="col-md-4 mb-3">
-                            <label>End Time</label>
+                            <label class="form-label">End Time</label>
                             <input type="time" name="end_time" class="form-control" required>
                         </div>
                     </div>
@@ -244,4 +249,4 @@ $rooms    = $conn->query("SELECT * FROM rooms WHERE status='Available'");
     </div>
 </div>
 
-<?php include 'includes/footer.php'; ?>
+<?php include '../includes/footer.php'; ?>

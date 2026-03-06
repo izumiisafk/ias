@@ -1,5 +1,5 @@
 <?php
-require_once 'config/db.php';
+require_once 'includes/auth.php'; require_once '../config/db.php';
 
 if (isset($_POST['add_section'])) {
 
@@ -32,7 +32,7 @@ if (isset($_POST['add_section'])) {
 }
 ?>
 
-<?php include 'includes/header.php'; ?>
+<?php include '../includes/header.php'; ?>
 <?php include 'includes/sidebar.php'; ?>
 
 <div class="main-content">
@@ -61,8 +61,7 @@ if (isset($_POST['add_section'])) {
                     </tr>
                 </thead>
                 <tbody>
-                    <?php
-                    $result = $conn->query("
+                    <?php $result = $conn->query("
                         SELECT s.*, 
                         CONCAT(f.first_name,' ',f.last_name) AS adviser_name
                         FROM sections s
@@ -141,8 +140,7 @@ if (isset($_POST['add_section'])) {
                         <label class="form-label">Adviser</label>
                         <select name="adviser_id" class="form-select">
                             <option value="">Select Faculty</option>
-                            <?php
-                            $faculty = $conn->query("SELECT faculty_id, first_name, last_name FROM faculty WHERE status='Active'");
+                            <?php $faculty = $conn->query("SELECT faculty_id, first_name, last_name FROM faculty WHERE status='Active'");
                             while($f = $faculty->fetch_assoc()):
                             ?>
                                 <option value="<?= $f['faculty_id']; ?>">
@@ -164,4 +162,4 @@ if (isset($_POST['add_section'])) {
     </div>
 </div>
 
-<?php include 'includes/footer.php'; ?>
+<?php include '../includes/footer.php'; ?>

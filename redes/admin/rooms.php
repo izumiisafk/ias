@@ -1,5 +1,5 @@
 <?php
-require_once 'config/db.php';
+require_once 'includes/auth.php'; require_once '../config/db.php';
 $page_title = 'Rooms - Class Scheduling System';
 
 // ==========================
@@ -40,7 +40,7 @@ if ($result && $row = $result->fetch_assoc()) {
 $rooms = $conn->query("SELECT * FROM rooms ORDER BY building, floor");
 ?>
 
-<?php include 'includes/header.php'; ?>
+<?php include '../includes/header.php'; ?>
 <?php include 'includes/sidebar.php'; ?>
 
 <div class="main-content">
@@ -125,4 +125,4 @@ $rooms = $conn->query("SELECT * FROM rooms ORDER BY building, floor");
     </div>
 </div>
 
-<?php include 'includes/footer.php'; ?>
+<?php include '../includes/footer.php'; ?>
