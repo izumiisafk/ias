@@ -308,7 +308,7 @@ $registrar_count = $registrars ? $registrars->num_rows : 0;
 
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div>
-               <h5 class="mb-0" style="color:var(--text-primary); font-weight:700;">Registrar Accounts</h5>
+                <h5 class="mb-0" style="color:#1e293b; font-weight:700;">Registrar Accounts</h5>
                 <small class="text-muted">These accounts can log in to the Registrar side of the system.</small>
             </div>
             <button class="btn-primary-custom" data-bs-toggle="modal" data-bs-target="#addRegistrarModal">
@@ -550,15 +550,9 @@ $registrar_count = $registrars ? $registrars->num_rows : 0;
                         <label class="form-label">Department</label>
                         <input type="text" name="reg_department" class="form-control" placeholder="e.g. Registrar's Office">
                     </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Email</label>
-                            <input type="email" name="reg_email" class="form-control">
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Phone</label>
-                            <input type="text" name="reg_phone" class="form-control">
-                        </div>
+                    <div class="mb-3">
+                        <label class="form-label">Phone</label>
+                        <input type="text" name="reg_phone" class="form-control">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Status</label>

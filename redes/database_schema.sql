@@ -123,3 +123,19 @@ CREATE TABLE conflicts (
     FOREIGN KEY (schedule_id_1) REFERENCES schedules(schedule_id) ON DELETE CASCADE,
     FOREIGN KEY (schedule_id_2) REFERENCES schedules(schedule_id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+-- System accounts table (for Registrar login accounts)
+-- Teachers do NOT have login accounts, they are in the faculty table
+CREATE TABLE system_accounts (
+    account_id   INT AUTO_INCREMENT PRIMARY KEY,
+    username     VARCHAR(50) UNIQUE NOT NULL,
+    password     VARCHAR(255) NOT NULL,
+    full_name    VARCHAR(100) NOT NULL,
+    email        VARCHAR(100),
+    phone        VARCHAR(20),
+    department   VARCHAR(100),
+    role         ENUM('registrar') NOT NULL DEFAULT 'registrar',
+    status       ENUM('Active','Inactive') DEFAULT 'Active',
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
