@@ -28,7 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (!$logged) {
-        $stmt = $conn->prepare("SELECT * FROM system_accounts WHERE username=? AND status='Active' LIMIT 1");
+        $stmt = $conn->prepare("SELECT * FROM system_accounts WHERE email=? AND status='Active' LIMIT 1");
         if ($stmt) {
             $stmt->bind_param("s", $username);
             $stmt->execute();
@@ -49,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: ' . ($_SESSION['role'] === 'admin' ? 'admin/dashboard.php' : 'registrar/dashboard.php'));
         exit();
     } else {
-        $error = 'Invalid username or password.';
+        $error = 'Invalid email or password.';
     }
 }
 ?>
@@ -284,10 +284,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <form method="POST" autocomplete="off">
             <div class="field-group">
-                <label>Username</label>
+                <label>Email</label>
                 <div class="field-wrap">
-                    <i class="bi bi-person field-icon"></i>
-                    <input type="text" name="username" placeholder="Enter your username"
+                    <i class="bi bi-envelope field-icon"></i>
+                    <input type="text" name="username" placeholder="Enter your email"
                            value="<?= htmlspecialchars($_POST['username'] ?? '') ?>"
                            required autofocus>
                 </div>
