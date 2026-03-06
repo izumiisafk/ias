@@ -85,7 +85,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ---------- ADD REGISTRAR ACCOUNT ----------
     if (isset($_POST['action']) && $_POST['action'] === 'add_registrar') {
-        $username   = trim($_POST['username']);
         $password   = trim($_POST['password']);
         $full_name  = trim($_POST['full_name']);
         $email      = trim($_POST['reg_email']);
@@ -93,11 +92,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $department = trim($_POST['reg_department']);
         $status     = $_POST['reg_status'];
 
-        $check = $conn->prepare("SELECT account_id FROM system_accounts WHERE username=?");
-        $check->bind_param("s", $username);
+        // Auto-generate username from email (part before @)
+        $username = strtolower(explode('@', $email)[0]);
+
+        $check = $conn->prepare("SELECT account_id FROM system_accounts WHERE email=?");
+        $check->bind_param("s", $email);
         $check->execute();
         if ($check->get_result()->num_rows > 0) {
-            $errors[] = "Username already exists.";
+            $errors[] = "Email already exists.";
             $active_tab = 'registrars';
         } else {
             $stmt = $conn->prepare("INSERT INTO system_accounts
@@ -238,7 +240,7 @@ $registrar_count = $registrars ? $registrars->num_rows : 0;
         <?php if ($active_tab === 'teachers'): ?>
 
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0" style="color:#1e293b; font-weight:700;">Teacher List</h5>
+           <h5 class="mb-0" style="color:var(--text-primary); font-weight:700;">Teacher List</h5>
             <button class="btn-primary-custom" data-bs-toggle="modal" data-bs-target="#addTeacherModal">
                 <i class="bi bi-plus-lg me-2"></i>Add Teacher
             </button>
@@ -306,7 +308,7 @@ $registrar_count = $registrars ? $registrars->num_rows : 0;
 
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div>
-                <h5 class="mb-0" style="color:#1e293b; font-weight:700;">Registrar Accounts</h5>
+               <h5 class="mb-0" style="color:var(--text-primary); font-weight:700;">Registrar Accounts</h5>
                 <small class="text-muted">These accounts can log in to the Registrar side of the system.</small>
             </div>
             <button class="btn-primary-custom" data-bs-toggle="modal" data-bs-target="#addRegistrarModal">
@@ -536,8 +538,8 @@ $registrar_count = $registrars ? $registrars->num_rows : 0;
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Username <span class="text-danger">*</span></label>
-                            <input type="text" name="username" class="form-control" required>
+                            <label class="form-label">Email <span class="text-danger">*</span></label>
+                            <input type="email" name="reg_email" class="form-control" required placeholder="Used for login">
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Password <span class="text-danger">*</span></label>
@@ -593,11 +595,6 @@ $registrar_count = $registrars ? $registrars->num_rows : 0;
                 </div>
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label class="form-label">Username</label>
-                        <input type="text" id="edit_reg_username" class="form-control" disabled>
-                        <small class="text-muted">Username cannot be changed.</small>
-                    </div>
-                    <div class="mb-3">
                         <label class="form-label">Full Name</label>
                         <input type="text" name="full_name" id="edit_reg_fullname" class="form-control" required>
                     </div>
@@ -648,44 +645,46 @@ $registrar_count = $registrars ? $registrars->num_rows : 0;
 
 <style>
 .staff-tabs {
-    display: flex;
-    gap: 4px;
-    border-bottom: 2px solid #e5e7eb;
+     display: flex;
+    gap: 6px;
+    border-bottom: 1px solid var(--color-border);
     padding-bottom: 0;
+    margin-bottom: 20px;
 }
 .staff-tab {
-    padding: 10px 20px;
+padding: 9px 18px;
     border-radius: 8px 8px 0 0;
-    font-size: 0.875rem;
+    font-size: 13px;
     font-weight: 600;
-    color: #64748b;
+    color: var(--text-secondary);
     text-decoration: none;
     border: 1px solid transparent;
     border-bottom: none;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     transition: all 0.15s;
     position: relative;
-    bottom: -2px;
+    bottom: -1px;
+    font-family: var(--font-body);
 }
-.staff-tab:hover { color: #1e293b; background: #f8fafc; }
+.staff-tab:hover {  color: var(--text-primary);
+    background: rgba(255,255,255,0.04); }
 .staff-tab.active {
-    color: #1e293b;
-    background: #fff;
-    border-color: #e5e7eb;
-    border-bottom-color: #fff;
+  color: var(--text-primary);
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    border-bottom-color: var(--color-surface);
 }
 .tab-count {
-    background: #e2e8f0;
-    color: #475569;
+     background: rgba(255,255,255,0.07);
+    color: var(--text-secondary);
     border-radius: 20px;
     padding: 1px 8px;
-    font-size: 0.72rem;
+    font-size: 11px;
     font-weight: 700;
 }
-.staff-tab.active .tab-count {
-    background: #1e293b;
+.staff-tab.active .tab-count { background: var(--accent);
     color: #fff;
 }
 </style>
@@ -714,13 +713,12 @@ function confirmDeleteTeacher(id, name) {
 
 // ---- REGISTRAR EDIT ----
 function openEditRegistrar(r) {
-    document.getElementById('edit_account_id').value    = r.account_id;
-    document.getElementById('edit_reg_username').value  = r.username;
-    document.getElementById('edit_reg_fullname').value  = r.full_name;
+    document.getElementById('edit_account_id').value     = r.account_id;
+    document.getElementById('edit_reg_fullname').value   = r.full_name;
     document.getElementById('edit_reg_department').value = r.department ?? '';
-    document.getElementById('edit_reg_email').value     = r.email ?? '';
-    document.getElementById('edit_reg_phone').value     = r.phone ?? '';
-    document.getElementById('edit_reg_status').value    = r.status;
+    document.getElementById('edit_reg_email').value      = r.email ?? '';
+    document.getElementById('edit_reg_phone').value      = r.phone ?? '';
+    document.getElementById('edit_reg_status').value     = r.status;
     new bootstrap.Modal(document.getElementById('editRegistrarModal')).show();
 }
 
