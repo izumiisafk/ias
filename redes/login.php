@@ -49,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: ' . ($_SESSION['role'] === 'admin' ? 'admin/dashboard.php' : 'registrar/dashboard.php'));
         exit();
     } else {
-        $error = 'Invalid pekpek.';
+        $error = 'Invalid email or password.';
     }
 }
 ?>
