@@ -139,3 +139,27 @@ CREATE TABLE system_accounts (
     created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
+
+
+-- ROOMS
+INSERT INTO rooms (room_code, room_name, room_type, building, floor, capacity, status) VALUES
+('RM-101', 'Room 101', 'Lecture', 'Main Building', '1st', 40, 'Available'),
+('RM-102', 'Room 102', 'Lecture', 'Main Building', '1st', 40, 'Available'),
+('RM-201', 'Room 201', 'Lecture', 'Main Building', '2nd', 40, 'Available'),
+('LAB-101', 'Computer Lab 1', 'Laboratory', 'Tech Building', '1st', 30, 'Available'),
+('LAB-102', 'Computer Lab 2', 'Laboratory', 'Tech Building', '1st', 30, 'Available');
+
+-- SUBJECTS
+INSERT INTO subjects (subject_code, subject_name, units, hours_per_week, department, year_level, status) VALUES
+('CS101', 'Introduction to Computing', 3, 3, 'College of IT', '1st Year', 'Active'),
+('CS102', 'Computer Programming 1', 3, 3, 'College of IT', '1st Year', 'Active'),
+('CS201', 'Data Structures and Algorithms', 3, 3, 'College of IT', '2nd Year', 'Active'),
+('CS202', 'Object Oriented Programming', 3, 3, 'College of IT', '2nd Year', 'Active'),
+('CS301', 'Systems Analysis and Design', 3, 3, 'College of IT', '3rd Year', 'Active'),
+('CS302', 'Web Development', 3, 3, 'College of IT', '3rd Year', 'Active');
+
+-- ACADEMIC TERM (required para gumana ang schedules)
+INSERT INTO academic_terms (academic_year, semester, is_active) VALUES
+('2025-2026', '1st Semester', 1);
+
+
