@@ -1,4 +1,4 @@
-CREATE DATABASE `class_scheduling`;
+CREATE DATABASE ``;
 USE `bading`;
 
 -- =========================
