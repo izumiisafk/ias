@@ -80,6 +80,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             --font-b:   'DM Sans', sans-serif;
         }
 
+        /* ── LIGHT MODE ── */
+        body.light-mode {
+            --bg:       #f0f4f8;
+            --surface:  #ffffff;
+            --surface2: #e8edf3;
+            --border:   rgba(0,0,0,0.08);
+            --text:     #1a202c;
+            --muted:    #718096;
+        }
+        body.light-mode .left-panel {
+            background: #e2e8f0;
+            border-right-color: rgba(0,0,0,0.08);
+        }
+        body.light-mode .lp-card {
+            background: rgba(0,0,0,0.03);
+            border-color: rgba(0,0,0,0.08);
+        }
+        body.light-mode .lp-footer { color: rgba(0,0,0,0.25); }
+        body.light-mode .field-wrap input {
+            background: #ffffff;
+            border-color: rgba(0,0,0,0.12);
+            color: #1a202c;
+        }
+        body.light-mode .field-wrap input::placeholder { color: rgba(0,0,0,0.25); }
+        body.light-mode .field-wrap input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(79,163,255,0.1);
+        }
+        body.light-mode #themeLoginBtn {
+            background: #e2e8f0;
+            border-color: rgba(0,0,0,0.1);
+        }
+
         body {
             font-family: var(--font-b);
             background: var(--bg);
@@ -87,7 +120,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             display: flex;
             color: var(--text);
             -webkit-font-smoothing: antialiased;
+            transition: background 0.2s, color 0.2s;
         }
+
+        /* ── THEME TOGGLE TOP RIGHT ── */
+        #themeLoginBtn {
+            position: fixed;
+            top: 16px;
+            right: 20px;
+            z-index: 9999;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 1px solid var(--border);
+            background: var(--surface2);
+            color: var(--accent);
+            font-size: 15px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            transition: all 0.2s;
+        }
+        #themeLoginBtn:hover { transform: scale(1.1); }
 
         /* ── LEFT PANEL ── */
         .left-panel {
@@ -98,6 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             justify-content: space-between;
             padding: 44px 40px;
             position: relative; overflow: hidden; flex-shrink: 0;
+            transition: background 0.2s, border-color 0.2s;
         }
 
         .left-panel::before {
@@ -115,10 +172,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border-radius: 50%; pointer-events: none;
         }
 
-        .lp-brand {
-            display: flex; align-items: center; gap: 12px;
-            position: relative; z-index: 1;
-        }
+        .lp-brand { display: flex; align-items: center; gap: 12px; position: relative; z-index: 1; }
         .lp-brand-icon {
             width: 38px; height: 38px; background: var(--accent);
             border-radius: 10px;
@@ -140,12 +194,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .lp-body p { font-size: 13px; color: var(--muted); line-height: 1.65; }
 
         .lp-cards { display: flex; flex-direction: column; gap: 10px; margin-top: 28px; position: relative; z-index: 1; }
-
         .lp-card {
             background: rgba(255,255,255,0.03);
             border: 1px solid var(--border);
             border-radius: 12px; padding: 14px 16px;
             display: flex; align-items: center; gap: 12px;
+            transition: background 0.2s, border-color 0.2s;
         }
         .lp-card-icon {
             width: 36px; height: 36px; border-radius: 9px; flex-shrink: 0;
@@ -154,9 +208,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .lp-card-icon.admin    { background: rgba(79,163,255,0.12); color: var(--accent); }
         .lp-card-icon.registrar { background: rgba(0,229,160,0.1); color: var(--green); }
         .lp-card-label { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px; }
-        .lp-card-creds { font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.6); font-family: monospace; }
+        .lp-card-creds { font-size: 13px; font-weight: 500; color: var(--muted); font-family: monospace; }
 
-        .lp-footer { font-size: 12px; color: rgba(255,255,255,0.15); position: relative; z-index: 1; }
+        .lp-footer { font-size: 12px; color: rgba(255,255,255,0.15); position: relative; z-index: 1; transition: color 0.2s; }
 
         /* ── RIGHT PANEL ── */
         .right-panel {
@@ -193,7 +247,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             padding: 11px 40px 11px 38px;
             font-size: 14px; font-family: var(--font-b);
             color: var(--text); background: var(--surface2);
-            transition: border-color 0.15s, box-shadow 0.15s;
+            transition: border-color 0.15s, box-shadow 0.15s, background 0.2s;
         }
         .field-wrap input::placeholder { color: rgba(255,255,255,0.18); }
         .field-wrap input:focus {
@@ -237,8 +291,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             .right-panel { padding: 32px 24px; }
         }
     </style>
+    <script>
+    // Apply theme immediately to avoid flash
+    if (localStorage.getItem('classsync_theme') === 'light') {
+        document.documentElement.style.setProperty('background','#f0f4f8');
+    }
+    </script>
 </head>
 <body>
+
+<!-- THEME TOGGLE TOP RIGHT -->
+<button id="themeLoginBtn" onclick="toggleLoginTheme()" title="Toggle Light/Dark Mode">
+    <i class="bi bi-sun-fill" id="loginThemeIcon"></i>
+</button>
 
 <div class="left-panel">
     <div class="lp-brand">
@@ -249,22 +314,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="lp-body">
         <h2>Your Schedule,<br><span>Our Priority.</span></h2>
         <p>Manage users, roles and scheduling with a modern admin panel.</p>
-        <div class="lp-cards">
-            <div class="lp-card">
-                <div class="lp-card-icon admin"><i class="bi bi-shield-fill"></i></div>
-                <div>
-                    <div class="lp-card-label">Admin</div>
-                    <div class="lp-card-creds">admin / admin123</div>
-                </div>
-            </div>
-            <div class="lp-card">
-                <div class="lp-card-icon registrar"><i class="bi bi-person-badge-fill"></i></div>
-                <div>
-                    <div class="lp-card-label">Registrar</div>
-                    <div class="lp-card-creds">Created by Admin</div>
-                </div>
-            </div>
-        </div>
     </div>
 
     <div class="lp-footer">Class Scheduling System &copy; 2025–2026</div>
@@ -311,6 +360,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </div>
 
 <script>
+// Apply saved theme on load
+(function() {
+    if (localStorage.getItem('classsync_theme') === 'light') {
+        document.body.classList.add('light-mode');
+        document.getElementById('loginThemeIcon').className = 'bi bi-moon-fill';
+    }
+})();
+
+function toggleLoginTheme() {
+    const isLight = document.body.classList.toggle('light-mode');
+    localStorage.setItem('classsync_theme', isLight ? 'light' : 'dark');
+    document.getElementById('loginThemeIcon').className = isLight ? 'bi bi-moon-fill' : 'bi bi-sun-fill';
+}
+
 function togglePw() {
     const i = document.getElementById('pwInput');
     const ic = document.getElementById('pwIcon');
