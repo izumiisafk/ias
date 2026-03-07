@@ -95,25 +95,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Auto-generate username from email (part before @)
         $username = strtolower(explode('@', $email)[0]);
 
-        $check = $conn->prepare("SELECT account_id FROM system_accounts WHERE email=?");
-        $check->bind_param("s", $email);
-        $check->execute();
-        if ($check->get_result()->num_rows > 0) {
-            $errors[] = "Email already exists.";
+        // ── PASSWORD POLICY VALIDATION ──
+        $pw_errors = [];
+        if (strlen($password) < 8)           $pw_errors[] = "at least 8 characters";
+        if (!preg_match('/[0-9]/', $password)) $pw_errors[] = "at least 1 number";
+        if (!preg_match('/[^a-zA-Z0-9]/', $password)) $pw_errors[] = "at least 1 special character";
+        if (!empty($pw_errors)) {
+            $errors[] = "Password must have: " . implode(', ', $pw_errors) . ".";
             $active_tab = 'registrars';
         } else {
-            $stmt = $conn->prepare("INSERT INTO system_accounts
-                (username, password, full_name, email, phone, department, role, status)
-                VALUES (?, ?, ?, ?, ?, ?, 'registrar', ?)");
-            $stmt->bind_param("sssssss",
-                $username, $password, $full_name,
-                $email, $phone, $department, $status);
-            if ($stmt->execute()) {
-                $success = "Registrar account created successfully!";
+            $check = $conn->prepare("SELECT account_id FROM system_accounts WHERE email=?");
+            $check->bind_param("s", $email);
+            $check->execute();
+            if ($check->get_result()->num_rows > 0) {
+                $errors[] = "Email already exists.";
+                $active_tab = 'registrars';
             } else {
-                $errors[] = "Error creating account: " . $conn->error;
+                $stmt = $conn->prepare("INSERT INTO system_accounts
+                    (username, password, full_name, email, phone, department, role, status)
+                    VALUES (?, ?, ?, ?, ?, ?, 'registrar', ?)");
+                $stmt->bind_param("sssssss",
+                    $username, $password, $full_name,
+                    $email, $phone, $department, $status);
+                if ($stmt->execute()) {
+                    $new_id = $conn->insert_id;
+                    // Save to password history
+                    $hist = $conn->prepare("INSERT INTO password_history (account_id, password) VALUES (?, ?)");
+                    $hist->bind_param("is", $new_id, $password);
+                    $hist->execute();
+                    $success = "Registrar account created successfully!";
+                } else {
+                    $errors[] = "Error creating account: " . $conn->error;
+                }
+                $active_tab = 'registrars';
             }
-            $active_tab = 'registrars';
         }
     }
 
@@ -128,25 +143,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $new_pass   = trim($_POST['new_password']);
 
         if (!empty($new_pass)) {
-            $stmt = $conn->prepare("UPDATE system_accounts SET
-                full_name=?, email=?, phone=?, department=?, status=?, password=?
-                WHERE account_id=?");
-            $stmt->bind_param("ssssssi",
-                $full_name, $email, $phone, $department, $status, $new_pass, $account_id);
+            // ── PASSWORD POLICY VALIDATION ──
+            $pw_errors = [];
+            if (strlen($new_pass) < 8)            $pw_errors[] = "at least 8 characters";
+            if (!preg_match('/[0-9]/', $new_pass))  $pw_errors[] = "at least 1 number";
+            if (!preg_match('/[^a-zA-Z0-9]/', $new_pass)) $pw_errors[] = "at least 1 special character";
+
+            if (!empty($pw_errors)) {
+                $errors[] = "Password must have: " . implode(', ', $pw_errors) . ".";
+                $active_tab = 'registrars';
+            } else {
+                // ── CHECK LAST 3 PASSWORDS ──
+                $hist_check = $conn->prepare("SELECT password FROM password_history WHERE account_id=? ORDER BY created_at DESC LIMIT 3");
+                $hist_check->bind_param("i", $account_id);
+                $hist_check->execute();
+                $hist_result = $hist_check->get_result();
+                $reused = false;
+                while ($h = $hist_result->fetch_assoc()) {
+                    if ($h['password'] === $new_pass) { $reused = true; break; }
+                }
+                if ($reused) {
+                    $errors[] = "Cannot reuse any of your last 3 passwords.";
+                    $active_tab = 'registrars';
+                } else {
+                    $stmt = $conn->prepare("UPDATE system_accounts SET
+                        full_name=?, email=?, phone=?, department=?, status=?, password=?
+                        WHERE account_id=?");
+                    $stmt->bind_param("ssssssi",
+                        $full_name, $email, $phone, $department, $status, $new_pass, $account_id);
+                    if ($stmt->execute()) {
+                        // Save to history
+                        $hist = $conn->prepare("INSERT INTO password_history (account_id, password) VALUES (?, ?)");
+                        $hist->bind_param("is", $account_id, $new_pass);
+                        $hist->execute();
+                        $success = "Registrar account updated successfully!";
+                    } else {
+                        $errors[] = "Error updating account: " . $conn->error;
+                    }
+                    $active_tab = 'registrars';
+                }
+            }
         } else {
             $stmt = $conn->prepare("UPDATE system_accounts SET
                 full_name=?, email=?, phone=?, department=?, status=?
                 WHERE account_id=?");
             $stmt->bind_param("sssssi",
                 $full_name, $email, $phone, $department, $status, $account_id);
+            if ($stmt->execute()) {
+                $success = "Registrar account updated successfully!";
+            } else {
+                $errors[] = "Error updating account: " . $conn->error;
+            }
+            $active_tab = 'registrars';
         }
-
-        if ($stmt->execute()) {
-            $success = "Registrar account updated successfully!";
-        } else {
-            $errors[] = "Error updating account: " . $conn->error;
-        }
-        $active_tab = 'registrars';
     }
 
     // ---------- DELETE REGISTRAR ----------
@@ -543,8 +592,15 @@ $registrar_count = $registrars ? $registrars->num_rows : 0;
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Password <span class="text-danger">*</span></label>
-                            <input type="text" name="password" class="form-control" required placeholder="Set initial password">
+                            <input type="password" name="password" id="add_reg_password" class="form-control" required placeholder="Set initial password" oninput="checkPwPolicy(this.value,'add')">
                         </div>
+                    </div>
+                    <!-- Password Policy Checker -->
+                    <div class="mb-3" id="add_pw_policy" style="background:var(--color-surface2);border-radius:8px;padding:10px 14px;font-size:12.5px;display:none;">
+                        <div style="font-weight:600;margin-bottom:6px;color:var(--text-secondary);">Password must have:</div>
+                        <div id="add_rule_len"  class="pw-rule"><i class="bi bi-x-circle-fill"></i> At least 8 characters</div>
+                        <div id="add_rule_num"  class="pw-rule"><i class="bi bi-x-circle-fill"></i> At least 1 number</div>
+                        <div id="add_rule_spc"  class="pw-rule"><i class="bi bi-x-circle-fill"></i> At least 1 special character</div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Department</label>
@@ -594,7 +650,14 @@ $registrar_count = $registrars ? $registrars->num_rows : 0;
                     </div>
                     <div class="mb-3">
                         <label class="form-label">New Password <small class="text-muted">(leave blank to keep current)</small></label>
-                        <input type="text" name="new_password" class="form-control" placeholder="Enter new password or leave blank">
+                        <input type="password" name="new_password" id="edit_reg_password" class="form-control" placeholder="Enter new password or leave blank" oninput="checkPwPolicy(this.value,'edit')">
+                    </div>
+                    <!-- Password Policy Checker -->
+                    <div class="mb-3" id="edit_pw_policy" style="background:var(--color-surface2);border-radius:8px;padding:10px 14px;font-size:12.5px;display:none;">
+                        <div style="font-weight:600;margin-bottom:6px;color:var(--text-secondary);">Password must have:</div>
+                        <div id="edit_rule_len"  class="pw-rule"><i class="bi bi-x-circle-fill"></i> At least 8 characters</div>
+                        <div id="edit_rule_num"  class="pw-rule"><i class="bi bi-x-circle-fill"></i> At least 1 number</div>
+                        <div id="edit_rule_spc"  class="pw-rule"><i class="bi bi-x-circle-fill"></i> At least 1 special character</div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Department</label>
@@ -681,6 +744,15 @@ padding: 9px 18px;
 .staff-tab.active .tab-count { background: var(--accent);
     color: #fff;
 }
+.pw-rule {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 2px 0;
+    color: var(--text-muted);
+    transition: color 0.2s;
+}
+.pw-rule i { font-size: 13px; flex-shrink: 0; }
 </style>
 
 <script>
@@ -722,6 +794,53 @@ function confirmDeleteRegistrar(id, username) {
         document.getElementById('deleteRegistrarForm').submit();
     }
 }
+
+// ── PASSWORD POLICY CHECKER ──
+function checkPwPolicy(val, prefix) {
+    var box = document.getElementById(prefix + '_pw_policy');
+    if (!box) return;
+    box.style.display = val.length > 0 ? 'block' : 'none';
+    setRule(prefix + '_rule_len', val.length >= 8);
+    setRule(prefix + '_rule_num', /[0-9]/.test(val));
+    setRule(prefix + '_rule_spc', /[^a-zA-Z0-9]/.test(val));
+}
+function setRule(id, passed) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (passed) {
+        el.style.color = '#22c55e';
+        el.querySelector('i').className = 'bi bi-check-circle-fill';
+    } else {
+        el.style.color = 'var(--text-muted)';
+        el.querySelector('i').className = 'bi bi-x-circle-fill';
+    }
+}
+
+// Clear password fields and hide checkers when modals close
+document.addEventListener('DOMContentLoaded', function() {
+    var addModal = document.getElementById('addRegistrarModal');
+    if (addModal) addModal.addEventListener('hidden.bs.modal', function() {
+        var inp = document.getElementById('add_reg_password');
+        if (inp) inp.value = '';
+        var box = document.getElementById('add_pw_policy');
+        if (box) box.style.display = 'none';
+        document.querySelectorAll('#add_pw_policy .pw-rule').forEach(function(el) {
+            el.style.color = 'var(--text-muted)';
+            el.querySelector('i').className = 'bi bi-x-circle-fill';
+        });
+    });
+    var editModal = document.getElementById('editRegistrarModal');
+    if (editModal) editModal.addEventListener('hidden.bs.modal', function() {
+        var inp = document.getElementById('edit_reg_password');
+        if (inp) inp.value = '';
+        var box = document.getElementById('edit_pw_policy');
+        if (box) box.style.display = 'none';
+        document.querySelectorAll('#edit_pw_policy .pw-rule').forEach(function(el) {
+            el.style.color = 'var(--text-muted)';
+            el.querySelector('i').className = 'bi bi-x-circle-fill';
+        });
+    });
+});
 </script>
 
 <?php include '../includes/footer.php'; ?>
