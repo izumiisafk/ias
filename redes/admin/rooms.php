@@ -37,7 +37,28 @@ if ($result && $row = $result->fetch_assoc()) {
 // ==========================
 // FETCH ROOMS
 // ==========================
-$rooms = $conn->query("SELECT * FROM rooms ORDER BY building, floor");
+// ==========================
+// FETCH ROOMS
+// ==========================
+$rooms = $conn->query("
+    SELECT r.*,
+        CASE
+            WHEN r.status = 'Maintenance' THEN 'Maintenance'
+            WHEN EXISTS (
+                SELECT 1 FROM schedules s
+                JOIN academic_terms t ON s.term_id = t.term_id
+                WHERE s.room_id = r.room_id
+                AND s.status = 'Active'
+                AND t.is_active = 1
+                AND s.day_of_week = DAYNAME(NOW())
+                AND s.start_time <= TIME(NOW())
+                AND s.end_time > TIME(NOW())
+            ) THEN 'Occupied'
+            ELSE 'Available'
+        END AS live_status
+    FROM rooms r
+    ORDER BY r.building, r.floor
+");
 ?>
 
 <?php include '../includes/header.php'; ?>
@@ -109,10 +130,12 @@ $rooms = $conn->query("SELECT * FROM rooms ORDER BY building, floor");
                             <td><?= $room['floor']; ?></td>
                             <td><?= $room['capacity']; ?> students</td>
                             <td>
-                                <?php if ($room['status'] == 'Available'): ?>
-                                    <span class="badge-success">Available</span>
-                                <?php else: ?>
+                                <?php if ($room['live_status'] === 'Maintenance'): ?>
                                     <span class="badge-warning">Maintenance</span>
+                                <?php elseif ($room['live_status'] === 'Occupied'): ?>
+                                    <span class="badge-danger">Occupied</span>
+                                <?php else: ?>
+                                    <span class="badge-success">Available</span>
                                 <?php endif; ?>
                             </td>
                         </tr>
