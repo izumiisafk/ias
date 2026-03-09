@@ -4,10 +4,13 @@ $current = basename($_SERVER['PHP_SELF']);
 <div class="sidebar">
     <div class="sidebar-brand">
         <div class="brand-icon"><i class="bi bi-calendar2-week-fill"></i></div>
-        <div>
+        <div style="flex:1;">
             <div class="brand-text">ClassSync</div>
             <div class="brand-sub">Registrar</div>
         </div>
+        <button id="themeBtn" onclick="toggleTheme()" title="Toggle Light/Dark Mode">
+            <i class="theme-icon bi bi-sun-fill"></i>
+        </button>
     </div>
 
     <div class="sidebar-user">
@@ -20,7 +23,6 @@ $current = basename($_SERVER['PHP_SELF']);
 
     <nav class="sidebar-nav">
         <div class="nav-label">Main Menu</div>
-
         <a href="dashboard.php" class="nav-item <?= $current === 'dashboard.php' ? 'active' : '' ?>">
             <i class="bi bi-speedometer2"></i> Dashboard
         </a>
@@ -39,10 +41,24 @@ $current = basename($_SERVER['PHP_SELF']);
         <a href="conflicts.php" class="nav-item <?= $current === 'conflicts.php' ? 'active' : '' ?>">
             <i class="bi bi-exclamation-triangle-fill"></i> Conflicts
         </a>
-
         <div class="nav-label">Account</div>
-        <a href="logout.php" class="nav-item">
+        <a href="logout.php" class="nav-item" onclick="return confirmLogout();">
             <i class="bi bi-box-arrow-left"></i> Logout
         </a>
     </nav>
 </div>
+
+<script>
+// Theme initialization
+(function() {
+    var icon = document.querySelector('.theme-icon');
+    if (icon && localStorage.getItem('classsync_theme') === 'light') {
+        icon.className = 'theme-icon bi bi-moon-fill';
+    }
+})();
+
+// Confirm before logging out
+function confirmLogout() {
+    return confirm("Are you sure you want to logout?");
+}
+</script>

@@ -269,6 +269,13 @@ a { text-decoration: none; }
     padding: 3px 10px; border-radius: var(--r-full);
     font-size: 11px; font-weight: 600;
 }
+.badge-cancelled { 
+    background-color: #dc3545; 
+    color: #fff; 
+    padding: 3px 6px; 
+    border-radius: 4px;
+    font-size: 12px;
+}
 .badge-success::before { content:''; width:6px; height:6px; border-radius:50%; background: var(--success); flex-shrink:0; }
 
 .badge-warning {
@@ -361,8 +368,12 @@ a { text-decoration: none; }
 .form-control::placeholder { color: rgba(255,255,255,0.2); }
 
 /* Fix Bootstrap select arrow color */
+/* Remove dropdown arrow completely */
 .form-select {
-    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%234e5369' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
+    background-image: none !important;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
 }
 .form-select option { background: var(--color-surface2); color: var(--text-primary); }
 
@@ -459,3 +470,64 @@ a { text-decoration: none; }
     .sidebar { width: 100%; min-height: auto; position: relative; }
     .main-content { margin-left: 0; padding: 16px; }
 }
+/* ─── THEME TOGGLE IN SIDEBAR ─── */
+.sidebar-brand {
+    padding: 16px 14px !important;
+}
+#themeBtn {
+    width: 30px !important;
+    height: 30px !important;
+    border-radius: 50% !important;
+    border: 1px solid var(--color-border) !important;
+    background: var(--color-bg) !important;
+    color: var(--accent) !important;
+    font-size: 13px !important;
+    cursor: pointer !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0 !important;
+    transition: all 0.2s !important;
+    margin-left: auto;
+}
+#themeBtn:hover { transform: scale(1.1) !important; }
+
+.room-tabs {
+    display: flex;
+    gap: 6px;
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: 0;
+    margin-bottom: 20px;
+}
+.room-tab {
+    padding: 9px 18px;
+    border-radius: 8px 8px 0 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-decoration: none;
+    border: 1px solid transparent;
+    border-bottom: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.15s;
+    position: relative;
+    bottom: -1px;
+}
+.room-tab:hover { color: var(--text-primary); background: rgba(255,255,255,0.04); }
+.room-tab.active {
+    color: var(--text-primary);
+    background: var(--color-surface);
+    border-color: var(--color-border);
+    border-bottom-color: var(--color-surface);
+}
+.tab-count {
+    background: rgba(255,255,255,0.07);
+    color: var(--text-secondary);
+    border-radius: 20px;
+    padding: 1px 8px;
+    font-size: 11px;
+    font-weight: 700;
+}
+.room-tab.active .tab-count { background: var(--accent); color: #fff; }
