@@ -70,7 +70,7 @@ $lectures = 0;
 $result = $conn->query("SELECT COUNT(*) as total FROM rooms WHERE room_type='Lecture'");
 if ($result && $row = $result->fetch_assoc()) $lectures = $row['total'];
 
-// Occupied NOW — use PHP PHT values, not MySQL NOW()
+// Occupied NOW
 $occupied_now = 0;
 $occ_result   = $conn->query("
     SELECT COUNT(DISTINCT s.room_id) AS total
@@ -146,6 +146,27 @@ $occupied_rows = $conn->query("
     ORDER BY r.building, r.floor, r.room_code
 ");
 $occupied_count = $occupied_rows ? $occupied_rows->num_rows : 0;
+
+// ================================================================
+// FETCH SECTION → ROOMS MAPPING for JS
+// Stores ALL room IDs a section already owns as an array.
+// e.g. { "5": [3, 7], "6": [2] }
+// Used to disable EVERY room a section already has when assigning or editing.
+// Different sections remain free to choose any room.
+// ================================================================
+$section_room_map_js = [];  // section_id (string key) => [room_id, ...]
+
+$ra_res = $conn->query("SELECT section_id, room_id FROM room_assignments");
+if ($ra_res) {
+    while ($r = $ra_res->fetch_assoc()) {
+        $sid = intval($r['section_id']);
+        $rid = intval($r['room_id']);
+        if (!isset($section_room_map_js[$sid])) {
+            $section_room_map_js[$sid] = [];
+        }
+        $section_room_map_js[$sid][] = $rid;
+    }
+}
 
 $active_tab = $_GET['tab'] ?? 'all';
 
@@ -311,7 +332,7 @@ $programNames = [
         </div>
 
         <!-- ============================================================
-             TAB: SECTION ASSIGNMENTS (Admin: edit + delete enabled)
+             TAB: SECTION ASSIGNMENTS
         ============================================================ -->
         <?php elseif ($active_tab === 'assigned'): ?>
 
@@ -358,7 +379,6 @@ $programNames = [
                         <td><?= htmlspecialchars($row['building']) ?></td>
                         <td><?= htmlspecialchars($row['floor']) ?></td>
                         <td>
-                            <!-- ADMIN: edit + delete -->
                             <button class="btn-icon" title="Edit"
                                 onclick='openEditAssignment(<?= json_encode($row) ?>)'>
                                 <i class="bi bi-pencil-square"></i>
@@ -499,7 +519,6 @@ $programNames = [
 
     <!-- HOW IT WORKS -->
     <div class="content-card mt-4" style="font-size:13px;">
-        
         <div class="row">
             <div class="col-md-6 mb-2">
                 <div style="padding:12px; background:rgba(34,197,94,0.08); border-radius:8px; border-left:3px solid #22c55e;">
@@ -531,31 +550,42 @@ $programNames = [
     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
 </div>
 <div class="modal-body">
+
+    <!-- SECTION -->
     <div class="mb-3">
         <label class="form-label">Section <span class="text-danger">*</span></label>
         <select name="section_id" id="section_id" class="form-select" required>
             <option value="">Select Section</option>
             <?php
             $sections = $conn->query("SELECT section_id, section_name, program FROM sections WHERE status='Active' ORDER BY section_name");
-            if ($sections) while ($sec = $sections->fetch_assoc()): ?>
-            <option value="<?= $sec['section_id'] ?>" data-program="<?= htmlspecialchars($sec['program']) ?>">
+            if ($sections) while ($sec = $sections->fetch_assoc()):
+            ?>
+            <option value="<?= $sec['section_id'] ?>"
+                data-program="<?= htmlspecialchars($sec['program']) ?>">
                 <?= htmlspecialchars($sec['section_name']) ?>
             </option>
             <?php endwhile; ?>
         </select>
     </div>
+
+    <!-- ROOM -->
     <div class="mb-3">
         <label class="form-label">Available Room <span class="text-danger">*</span></label>
         <select name="room_id" id="room_id" class="form-select" required>
-            <option value="">Select Room</option>
+            <option value="">Select a section first</option>
             <?php
             $available = $conn->query("SELECT room_id, room_code, room_name, room_type, allowed_program FROM rooms WHERE status='Available' ORDER BY room_code");
             if ($available) while ($r = $available->fetch_assoc()):
-                echo '<option value="' . $r['room_id'] . '" data-type="' . $r['room_type'] . '" data-program="' . htmlspecialchars($r['allowed_program']) . '">'
-                   . htmlspecialchars($r['room_code'] . ' - ' . $r['room_name']) . '</option>';
-            endwhile; ?>
+            ?>
+            <option value="<?= $r['room_id'] ?>"
+                data-type="<?= $r['room_type'] ?>"
+                data-program="<?= htmlspecialchars($r['allowed_program']) ?>">
+                <?= htmlspecialchars($r['room_code'] . ' — ' . $r['room_name']) ?>
+            </option>
+            <?php endwhile; ?>
         </select>
     </div>
+
 </div>
 <div class="modal-footer">
     <button type="button" class="btn-secondary-custom" data-bs-dismiss="modal">Cancel</button>
@@ -577,6 +607,7 @@ $programNames = [
 <div class="modal-content">
 <form method="POST">
 <input type="hidden" name="assignment_id" id="edit_assignment_id">
+<input type="hidden" id="edit_current_room_id">
 <div class="modal-header">
     <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>Edit Assigned Room</h5>
     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -594,10 +625,17 @@ $programNames = [
             <?php
             $all_rooms = $conn->query("SELECT room_id, room_code, room_name, room_type, allowed_program FROM rooms WHERE status='Available' ORDER BY room_code");
             if ($all_rooms) while ($r = $all_rooms->fetch_assoc()):
-                echo '<option value="' . $r['room_id'] . '" data-type="' . $r['room_type'] . '" data-program="' . htmlspecialchars($r['allowed_program']) . '">'
-                   . htmlspecialchars($r['room_code'] . ' - ' . $r['room_name']) . '</option>';
-            endwhile; ?>
+            ?>
+            <option value="<?= $r['room_id'] ?>"
+                data-type="<?= $r['room_type'] ?>"
+                data-program="<?= htmlspecialchars($r['allowed_program']) ?>">
+                <?= htmlspecialchars($r['room_code'] . ' — ' . $r['room_name']) ?>
+            </option>
+            <?php endwhile; ?>
         </select>
+        <small class="text-muted mt-1 d-block">
+            <i class="bi bi-info-circle me-1"></i>Current room is pre-selected. You can change it to any other room.
+        </small>
     </div>
 </div>
 <div class="modal-footer">
@@ -620,6 +658,17 @@ $programNames = [
 
 
 <script>
+// SECTION → ROOMS MAP { sectionId: [roomId, roomId, ...] }
+// A section can be assigned to multiple rooms, so we store ALL of them.
+// When assigning/editing, EVERY room this section already owns is disabled.
+// Other sections are completely unrestricted — they can pick any room.
+const SECTION_ROOM_MAP = <?= json_encode($section_room_map_js) ?>;
+
+// Helper: returns array of room IDs already owned by a section
+function ownedRooms(sectionId) {
+    return SECTION_ROOM_MAP[sectionId] ?? [];
+}
+
 // ── SEARCH FILTER (All Rooms tab) ──
 function filterRooms() {
     const q    = document.getElementById('roomSearch').value.toLowerCase();
@@ -634,37 +683,113 @@ function filterRooms() {
         (vis === 0 && q.length > 0) ? 'block' : 'none';
 }
 
-// ── EDIT ASSIGNMENT MODAL ──
+// ── ASSIGN MODAL: filter rooms by program/type, disable ALL rooms this section already owns ──
+const sectionSelect = document.getElementById('section_id');
+const roomSelect    = document.getElementById('room_id');
+
+if (sectionSelect && roomSelect) {
+    roomSelect._allOptions = Array.from(roomSelect.options);
+
+    sectionSelect.addEventListener('change', function () {
+        const selectedProgram   = this.selectedOptions[0]?.dataset.program ?? '';
+        const selectedSectionId = parseInt(this.value) || 0;
+        // ALL rooms this section already has assigned
+        const myRooms = ownedRooms(selectedSectionId);
+
+        roomSelect.innerHTML = '';
+        const ph = document.createElement('option');
+        ph.value = ''; ph.text = 'Select Room';
+        roomSelect.appendChild(ph);
+
+        roomSelect._allOptions.forEach(opt => {
+            if (!opt.value) return;
+
+            // Program / type filter
+            let show = false;
+            if (opt.dataset.type === 'Lecture') show = true;
+            if (opt.dataset.type === 'Laboratory') {
+                const allowed = opt.dataset.program ? opt.dataset.program.split(',').map(s => s.trim()) : [];
+                show = (allowed.length === 0 || allowed.includes(selectedProgram));
+            }
+            if (!show) return;
+
+            const clone  = opt.cloneNode(true);
+            const roomId = parseInt(opt.value);
+
+            // Disable if this section already owns this room
+            const alreadyMine = myRooms.includes(roomId);
+            clone.disabled    = alreadyMine;
+            clone.style.color = alreadyMine ? '#aaa' : '';
+            clone.text        = opt.text + (alreadyMine ? ' (Already assigned to you)' : '');
+
+            roomSelect.appendChild(clone);
+        });
+    });
+}
+
+// ── EDIT MODAL: open and rebuild room list ──
+// The room being edited is labelled (Current) and enabled.
+// ALL OTHER rooms this section already owns are disabled.
+// Rooms owned by other sections are freely selectable.
 function openEditAssignment(a) {
     const editRoomSelect = document.getElementById('edit_room_id');
+    const currentRoomId  = parseInt(a.room_id);
+    const sectionId      = parseInt(a.section_id);
+    const program        = a.program ?? '';
 
-    document.getElementById('edit_assignment_id').value = a.assignment_id;
-    document.getElementById('edit_section_name').value  = a.section_name;
+    document.getElementById('edit_assignment_id').value   = a.assignment_id;
+    document.getElementById('edit_section_name').value    = a.section_name;
+    document.getElementById('edit_current_room_id').value = currentRoomId;
 
-    // Store all options once
-    if (!editRoomSelect.allOptions) {
-        editRoomSelect.allOptions = Array.from(editRoomSelect.options);
+    if (!editRoomSelect._allOptions) {
+        editRoomSelect._allOptions = Array.from(editRoomSelect.options);
     }
 
-    // Rebuild filtered list
+    // All rooms this section owns
+    const myRooms = ownedRooms(sectionId);
+
     editRoomSelect.innerHTML = '';
     const placeholder = document.createElement('option');
     placeholder.value = ''; placeholder.text = 'Select Room';
     editRoomSelect.appendChild(placeholder);
 
-    editRoomSelect.allOptions.forEach(opt => {
+    editRoomSelect._allOptions.forEach(opt => {
         if (!opt.value) return;
-        if (opt.dataset.type === 'Lecture') {
-            editRoomSelect.appendChild(opt.cloneNode(true));
-        }
+
+        // Program / type filter
+        let show = false;
+        if (opt.dataset.type === 'Lecture') show = true;
         if (opt.dataset.type === 'Laboratory') {
-            if (!opt.dataset.program || opt.dataset.program.split(',').includes(a.program)) {
-                editRoomSelect.appendChild(opt.cloneNode(true));
-            }
+            const allowed = opt.dataset.program ? opt.dataset.program.split(',').map(s => s.trim()) : [];
+            show = (allowed.length === 0 || allowed.includes(program));
         }
+        if (!show) return;
+
+        const clone     = opt.cloneNode(true);
+        const optRoomId = parseInt(opt.value);
+        const isCurrent = (optRoomId === currentRoomId);
+
+        if (isCurrent) {
+            // Current room for this assignment — always enabled, labelled
+            clone.disabled    = false;
+            clone.style.color = '';
+            clone.text        = opt.text + ' — (Current)';
+        } else if (myRooms.includes(optRoomId)) {
+            // Another room already assigned to this same section — disable it
+            clone.disabled    = true;
+            clone.style.color = '#aaa';
+            clone.text        = opt.text + ' (Already assigned to you)';
+        } else {
+            // Free to pick
+            clone.disabled    = false;
+            clone.style.color = '';
+            clone.text        = opt.text;
+        }
+
+        editRoomSelect.appendChild(clone);
     });
 
-    editRoomSelect.value = a.room_id ?? '';
+    editRoomSelect.value = currentRoomId;
     new bootstrap.Modal(document.getElementById('editAssignmentModal')).show();
 }
 
@@ -674,35 +799,6 @@ function confirmDeleteAssignment(id, roomName) {
         document.getElementById('delete_assignment_id').value = id;
         document.getElementById('deleteAssignmentForm').submit();
     }
-}
-
-// ── FILTER ROOMS IN ASSIGN MODAL by section program ──
-const sectionSelect = document.getElementById('section_id');
-const roomSelect    = document.getElementById('room_id');
-
-if (sectionSelect && roomSelect) {
-    roomSelect.allOptions = Array.from(roomSelect.options);
-
-    sectionSelect.addEventListener('change', function () {
-        const selectedProgram = this.selectedOptions[0]?.dataset.program ?? '';
-        roomSelect.innerHTML = '';
-
-        const ph = document.createElement('option');
-        ph.value = ''; ph.text = 'Select Room';
-        roomSelect.appendChild(ph);
-
-        roomSelect.allOptions.forEach(opt => {
-            if (!opt.value) return;
-            if (opt.dataset.type === 'Lecture') {
-                roomSelect.appendChild(opt.cloneNode(true));
-            }
-            if (opt.dataset.type === 'Laboratory') {
-                if (!opt.dataset.program || opt.dataset.program.split(',').includes(selectedProgram)) {
-                    roomSelect.appendChild(opt.cloneNode(true));
-                }
-            }
-        });
-    });
 }
 </script>
 
