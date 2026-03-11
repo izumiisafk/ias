@@ -1,6 +1,6 @@
 <?php
 $host     = 'localhost';
-$dbname   = 'bading';
+$dbname   = 'ias_subsystem';
 $username = 'root';
 $password = '';
 
