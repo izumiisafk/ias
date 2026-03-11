@@ -1,5 +1,9 @@
-<?php if (session_status() === PHP_SESSION_NONE) session_start();
+<?php
+if (session_status() === PHP_SESSION_NONE) session_start();
 $current = basename($_SERVER['PHP_SELF']);
+
+// Get unresolved conflict count for the nav badge
+require_once __DIR__ . '/conflict_count.php';
 ?>
 <div class="sidebar">
     <div class="sidebar-brand">
@@ -38,9 +42,18 @@ $current = basename($_SERVER['PHP_SELF']);
         <a href="faculty_load.php" class="nav-item <?= $current === 'faculty_load.php' ? 'active' : '' ?>">
             <i class="bi bi-person-workspace"></i> Faculty Load
         </a>
-        <a href="conflicts.php" class="nav-item <?= $current === 'conflicts.php' ? 'active' : '' ?>">
+
+        <!-- CONFLICTS — red badge when unresolved conflicts exist -->
+        <a href="conflicts.php" class="nav-item <?= $current === 'conflicts.php' ? 'active' : '' ?>"
+           style="position:relative;">
             <i class="bi bi-exclamation-triangle-fill"></i> Conflicts
+            <?php if ($unresolved_conflict_count > 0): ?>
+                <span class="conflict-nav-badge" title="<?= $unresolved_conflict_count ?> unresolved conflict<?= $unresolved_conflict_count > 1 ? 's' : '' ?>">
+                    <?= $unresolved_conflict_count <= 99 ? $unresolved_conflict_count : '99+' ?>
+                </span>
+            <?php endif; ?>
         </a>
+
         <div class="nav-label">Account</div>
         <a href="logout.php" class="nav-item" onclick="return confirmLogout();">
             <i class="bi bi-box-arrow-left"></i> Logout
@@ -48,8 +61,41 @@ $current = basename($_SERVER['PHP_SELF']);
     </nav>
 </div>
 
+<style>
+/* ── Conflict nav badge ── */
+.conflict-nav-badge {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #ef4444;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 5px;
+    line-height: 1;
+    animation: conflict-pulse 2.4s ease-in-out infinite;
+    box-shadow: 0 0 0 0 rgba(239,68,68,0.5);
+}
+@keyframes conflict-pulse {
+    0%   { box-shadow: 0 0 0 0   rgba(239,68,68,0.55); }
+    60%  { box-shadow: 0 0 0 5px rgba(239,68,68,0);    }
+    100% { box-shadow: 0 0 0 0   rgba(239,68,68,0);    }
+}
+.nav-item.active .conflict-nav-badge {
+    background: rgba(255,255,255,0.25);
+    box-shadow: none;
+    animation: none;
+}
+</style>
+
 <script>
-// Theme initialization
 (function() {
     var icon = document.querySelector('.theme-icon');
     if (icon && localStorage.getItem('classsync_theme') === 'light') {
@@ -57,7 +103,6 @@ $current = basename($_SERVER['PHP_SELF']);
     }
 })();
 
-// Confirm before logging out
 function confirmLogout() {
     return confirm("Are you sure you want to logout?");
 }

@@ -96,11 +96,17 @@ foreach ($terms as $t) {
 }
 
 // ---------- FETCH ALL FACULTY FOR JS FILTERING ----------
-// We load ALL active faculty into a JS array so filtering happens client-side
 $all_faculty_js = [];
 $fac_res = $conn->query("SELECT faculty_id, first_name, last_name, department FROM faculty WHERE status='Active' ORDER BY last_name, first_name");
 if ($fac_res) {
     while ($f = $fac_res->fetch_assoc()) $all_faculty_js[] = $f;
+}
+
+// ---------- FETCH EXISTING SECTION NAMES FOR JS (to disable duplicates) ----------
+$existing_sections_js = [];
+$sec_res = $conn->query("SELECT section_name, term_id FROM sections");
+if ($sec_res) {
+    while ($s = $sec_res->fetch_assoc()) $existing_sections_js[] = $s;
 }
 ?>
 
@@ -280,6 +286,7 @@ if ($fac_res) {
         <select id="section_name" name="section_name" class="form-select" required>
             <option value="">Select Program / Year / Semester first</option>
         </select>
+        <small id="section_availability_hint" class="text-muted mt-1 d-block"></small>
     </div>
 
     <!-- TOTAL STUDENTS -->
@@ -401,6 +408,9 @@ if ($fac_res) {
 // ── ALL ACTIVE FACULTY (from PHP, used for client-side filtering) ──
 const ALL_FACULTY = <?= json_encode($all_faculty_js) ?>;
 
+// ── EXISTING SECTIONS (used to disable already-added ones) ──
+const EXISTING_SECTIONS = <?= json_encode($existing_sections_js) ?>;
+
 // Program code → exact department string (must match faculty.department in DB)
 const PROGRAM_TO_DEPT = {
     'BSIT':   'College of Computer Studies (CCS)',
@@ -447,8 +457,8 @@ function filterAdviser(mode, selectedId, programCode) {
     const filtered = ALL_FACULTY.filter(f => f.department.trim() === dept.trim());
 
     filtered.forEach(f => {
-        const opt     = document.createElement('option');
-        opt.value     = f.faculty_id;
+        const opt       = document.createElement('option');
+        opt.value       = f.faculty_id;
         opt.textContent = f.last_name + ', ' + f.first_name;
         if (String(f.faculty_id) === String(selectedId)) opt.selected = true;
         select.appendChild(opt);
@@ -469,8 +479,8 @@ function filterAdviser(mode, selectedId, programCode) {
 function openEditSection(s) {
     document.getElementById('edit_section_id').value       = s.section_id;
     document.getElementById('edit_section_name').value     = s.section_name;
-    document.getElementById('edit_program_display').value  = s.program;   // shown as text
-    document.getElementById('edit_program_code').value     = s.program;   // raw code for JS
+    document.getElementById('edit_program_display').value  = s.program;
+    document.getElementById('edit_program_code').value     = s.program;
     document.getElementById('edit_year_level').value       = s.year_level;
     document.getElementById('edit_total_students').value   = s.total_students;
     document.getElementById('edit_term_id').value          = s.term_id ?? '';
@@ -493,39 +503,89 @@ function confirmDeleteSection(id, name) {
     }
 }
 
-// ── GENERATE SECTION CODE OPTIONS ──
+// ── GENERATE SECTION CODE OPTIONS (with duplicate detection) ──
 function generateSections() {
     let program   = document.getElementById("add_program").value;
     let year      = document.getElementById("year_level").value;
     let semSelect = document.getElementById("semester");
     let semOption = semSelect.options[semSelect.selectedIndex];
     let sem       = semOption ? semOption.getAttribute("data-sem") : "";
+    let termId    = semOption ? semOption.value : "";
     let dropdown  = document.getElementById("section_name");
+    let hint      = document.getElementById("section_availability_hint");
 
     dropdown.innerHTML = "";
 
     if (!program || !year || !sem) {
         dropdown.innerHTML = '<option value="">Select Program / Year / Semester first</option>';
+        if (hint) hint.textContent = '';
         return;
     }
 
     const yearMap = { "1st Year": "1", "2nd Year": "2", "3rd Year": "3", "4th Year": "4" };
     let yearNum = yearMap[year] || year;
 
-    for (let i = 1; i <= 40; i++) {
+    // Build a Set of taken section names for this specific term
+    const takenInTerm = new Set(
+        EXISTING_SECTIONS
+            .filter(s => String(s.term_id) === String(termId))
+            .map(s => s.section_name)
+    );
+
+    let totalSlots    = 40;
+    let takenCount    = 0;
+    let firstAvailable = true;
+
+    for (let i = 1; i <= totalSlots; i++) {
         let num    = i.toString().padStart(2, '0');
         let code   = program + " - " + yearNum + sem + num;
         let option = document.createElement("option");
         option.value = code;
-        option.text  = code;
+
+        if (takenInTerm.has(code)) {
+            // Already added — grey out and disable
+            option.text     = code + " — (Already Added)";
+            option.disabled = true;
+            option.style.color = "#aaa";
+            takenCount++;
+        } else {
+            option.text = code;
+            // Auto-select the first available slot
+            if (firstAvailable) {
+                option.selected = true;
+                firstAvailable  = false;
+            }
+        }
+
         dropdown.appendChild(option);
+    }
+
+    // Show availability summary hint
+    if (hint) {
+        let available = totalSlots - takenCount;
+        if (available === 0) {
+            hint.innerHTML = '<i class="bi bi-x-circle-fill me-1" style="color:#dc3545;"></i>'
+                + '<strong style="color:#dc3545;">All 40 sections are already added for this term.</strong>';
+        } else {
+            hint.innerHTML = '<i class="bi bi-info-circle-fill me-1" style="color:#0d6efd;"></i>'
+                + '<strong>' + available + '</strong> of ' + totalSlots
+                + ' slots available &nbsp;|&nbsp; <strong>' + takenCount + '</strong> already added.';
+            hint.style.color = 'var(--text-secondary)';
+        }
     }
 }
 
-// Reset add modal adviser hint on open
+// Reset add modal on open
 document.getElementById('addSectionModal').addEventListener('show.bs.modal', function () {
-    document.getElementById('add_adviser_hint').textContent = 'Select a program to see available advisers.';
-    document.getElementById('add_adviser_id').innerHTML = '<option value="">— Select a Program first —</option>';
+    document.getElementById('add_adviser_hint').textContent    = 'Select a program to see available advisers.';
+    document.getElementById('add_adviser_id').innerHTML        = '<option value="">— Select a Program first —</option>';
+    document.getElementById('section_availability_hint').textContent = '';
+
+    // If active term is already selected by default, auto-generate sections
+    let semSelect = document.getElementById("semester");
+    if (semSelect.value) {
+        generateSections();
+    }
 });
 </script>
 

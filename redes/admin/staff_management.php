@@ -232,7 +232,6 @@ $departments = [
     'College of Business Administration (CBA)'              => 'CBA — BS Business Administration (BSBA)',
     'College of Criminal Justice Education (CCJE)'          => 'CCJE — BS Criminology (BS Crim)',
     'College of Engineering (COE)'                          => 'COE — BS Civil Engineering (BSCE)',
-    'Registrar\'s Office'                                   => "Registrar's Office",
 ];
 ?>
 
