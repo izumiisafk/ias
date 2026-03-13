@@ -406,6 +406,8 @@ function viewFacultySchedule(facultyId, name) {
     border-color: rgba(239,68,68,0.2);
 }
 .stats-card.red .number { color: #ef4444; }
+
+/* TANGINAMO CHRISTOPHER ATINADO*/
 </style>
 
 <?php include '../includes/footer.php'; ?>
