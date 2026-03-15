@@ -15,45 +15,46 @@ $faculty_loads = $conn->query("
         f.department,
         f.email,
         f.phone,
-        f.max_teaching_hours,
+        f.job_type,
+        f.total_units,
         f.status,
         COUNT(s.schedule_id) AS total_schedules,
-        COALESCE(SUM(
-            TIMESTAMPDIFF(MINUTE, s.start_time, s.end_time) / 60
-        ), 0) AS total_hours_assigned
+        COALESCE(SUM(sub.units), 0) AS total_units_assigned
     FROM faculty f
     LEFT JOIN schedules s ON f.faculty_id = s.faculty_id 
         AND s.status = 'Active'
         AND s.term_id = (SELECT term_id FROM academic_terms WHERE is_active = 1 LIMIT 1)
+    LEFT JOIN subjects sub ON s.subject_id = sub.subject_id
     GROUP BY f.faculty_id
     ORDER BY f.department, f.last_name, f.first_name
 ");
 
 // ================================================================
-// SUMMARY STATS
+// SUMMARY STATS — based on total_units
 // ================================================================
 $stats = $conn->query("
     SELECT
         COUNT(DISTINCT f.faculty_id) AS total_faculty,
         COUNT(DISTINCT CASE WHEN f.status = 'Active' THEN f.faculty_id END) AS active_faculty,
         COUNT(DISTINCT CASE 
-            WHEN COALESCE(weekly_hours.total_hours, 0) > f.max_teaching_hours 
+            WHEN COALESCE(assigned.total_units_assigned, 0) > f.total_units 
             THEN f.faculty_id 
         END) AS overloaded_faculty,
         COUNT(DISTINCT CASE 
-            WHEN COALESCE(weekly_hours.total_hours, 0) = 0 
+            WHEN COALESCE(assigned.total_units_assigned, 0) = 0 
             AND f.status = 'Active'
             THEN f.faculty_id 
         END) AS unassigned_faculty
     FROM faculty f
     LEFT JOIN (
-        SELECT faculty_id, 
-               SUM(TIMESTAMPDIFF(MINUTE, start_time, end_time) / 60) AS total_hours
-        FROM schedules 
-        WHERE status = 'Active'
-          AND term_id = (SELECT term_id FROM academic_terms WHERE is_active = 1 LIMIT 1)
-        GROUP BY faculty_id
-    ) weekly_hours ON f.faculty_id = weekly_hours.faculty_id
+        SELECT s.faculty_id, 
+               SUM(sub.units) AS total_units_assigned
+        FROM schedules s
+        JOIN subjects sub ON s.subject_id = sub.subject_id
+        WHERE s.status = 'Active'
+          AND s.term_id = (SELECT term_id FROM academic_terms WHERE is_active = 1 LIMIT 1)
+        GROUP BY s.faculty_id
+    ) assigned ON f.faculty_id = assigned.faculty_id
 ")->fetch_assoc();
 
 // ================================================================
@@ -66,7 +67,6 @@ $term_label = $activeTerm ? $activeTerm['semester'] . ' (' . $activeTerm['academ
 // FILTER BY DEPARTMENT
 // ================================================================
 $filter_dept = $_GET['department'] ?? '';
-$dept_where  = $filter_dept ? "HAVING f.department = '" . $conn->real_escape_string($filter_dept) . "'" : "";
 
 // Re-fetch with filter if needed
 if ($filter_dept) {
@@ -79,23 +79,23 @@ if ($filter_dept) {
             f.department,
             f.email,
             f.phone,
-            f.max_teaching_hours,
+            f.job_type,
+            f.total_units,
             f.status,
             COUNT(s.schedule_id) AS total_schedules,
-            COALESCE(SUM(
-                TIMESTAMPDIFF(MINUTE, s.start_time, s.end_time) / 60
-            ), 0) AS total_hours_assigned
+            COALESCE(SUM(sub.units), 0) AS total_units_assigned
         FROM faculty f
         LEFT JOIN schedules s ON f.faculty_id = s.faculty_id 
             AND s.status = 'Active'
             AND s.term_id = (SELECT term_id FROM academic_terms WHERE is_active = 1 LIMIT 1)
+        LEFT JOIN subjects sub ON s.subject_id = sub.subject_id
         WHERE f.department = '" . $conn->real_escape_string($filter_dept) . "'
         GROUP BY f.faculty_id
         ORDER BY f.last_name, f.first_name
     ");
 }
 
-// Collect rows into array so we can use it multiple times
+// Collect rows into array
 $faculty_rows = [];
 if ($faculty_loads) {
     while ($row = $faculty_loads->fetch_assoc()) {
@@ -160,11 +160,11 @@ if ($faculty_loads) {
             <label class="form-label mb-0" style="white-space:nowrap; font-weight:600;">Filter by Department:</label>
             <select name="department" class="form-select" style="max-width:320px;" onchange="this.form.submit()">
                 <option value="">— All Departments —</option>
-                <option value="College of Computer Studies (CCS)"          <?= $filter_dept === 'College of Computer Studies (CCS)' ? 'selected' : '' ?>>College of Computer Studies (CCS)</option>
+                <option value="College of Computer Studies (CCS)"                    <?= $filter_dept === 'College of Computer Studies (CCS)' ? 'selected' : '' ?>>College of Computer Studies (CCS)</option>
                 <option value="College of Hospitality and Tourism Management (CHTM)" <?= $filter_dept === 'College of Hospitality and Tourism Management (CHTM)' ? 'selected' : '' ?>>College of Hospitality and Tourism Management (CHTM)</option>
-                <option value="College of Business Administration (CBA)"   <?= $filter_dept === 'College of Business Administration (CBA)' ? 'selected' : '' ?>>College of Business Administration (CBA)</option>
-                <option value="College of Criminal Justice Education (CCJE)" <?= $filter_dept === 'College of Criminal Justice Education (CCJE)' ? 'selected' : '' ?>>College of Criminal Justice Education (CCJE)</option>
-                <option value="College of Engineering (COE)"               <?= $filter_dept === 'College of Engineering (COE)' ? 'selected' : '' ?>>College of Engineering (COE)</option>
+                <option value="College of Business Administration (CBA)"             <?= $filter_dept === 'College of Business Administration (CBA)' ? 'selected' : '' ?>>College of Business Administration (CBA)</option>
+                <option value="College of Criminal Justice Education (CCJE)"         <?= $filter_dept === 'College of Criminal Justice Education (CCJE)' ? 'selected' : '' ?>>College of Criminal Justice Education (CCJE)</option>
+                <option value="College of Engineering (COE)"                         <?= $filter_dept === 'College of Engineering (COE)' ? 'selected' : '' ?>>College of Engineering (COE)</option>
             </select>
             <?php if ($filter_dept): ?>
                 <a href="faculty_load.php" class="btn-secondary-custom">
@@ -195,9 +195,10 @@ if ($faculty_loads) {
                     <tr>
                         <th>Faculty</th>
                         <th>Department</th>
+                        <th>Job Type</th>
                         <th>Schedules</th>
-                        <th>Hours Assigned</th>
-                        <th>Max Hours</th>
+                        <th>Units Assigned</th>
+                        <th>Total Units</th>
                         <th>Load Progress</th>
                         <th>Load Status</th>
                         <th>Status</th>
@@ -206,12 +207,17 @@ if ($faculty_loads) {
                 </thead>
                 <tbody>
                     <?php if (empty($faculty_rows)): ?>
-                        <tr><td colspan="9" class="text-center py-4">No faculty found.</td></tr>
+                        <tr><td colspan="10" class="text-center py-4">No faculty found.</td></tr>
                     <?php else: ?>
                     <?php foreach ($faculty_rows as $row):
-                        $assigned = round($row['total_hours_assigned'], 1);
-                        $max      = $row['max_teaching_hours'];
-                        $pct      = $max > 0 ? min(($assigned / $max) * 100, 100) : 0;
+
+                        // Total units is fixed by job type: Full-time=39, Part-time=18
+                        $job_type    = $row['job_type'] ?? 'Full-time';
+                        $max_units   = $job_type === 'Part-time' ? 18 : 39;
+
+                        // Units assigned = SUM of subject units (integer, no decimals)
+                        $assigned    = intval($row['total_units_assigned']);
+                        $pct         = $max_units > 0 ? min(($assigned / $max_units) * 100, 100) : 0;
 
                         // Determine load status
                         if ($assigned == 0) {
@@ -219,7 +225,7 @@ if ($faculty_loads) {
                             $load_class  = 'load-none';
                             $bar_color   = '#94a3b8';
                             $badge_class = 'badge-secondary';
-                        } elseif ($assigned > $max) {
+                        } elseif ($assigned > $max_units) {
                             $load_status = 'Overloaded';
                             $load_class  = 'load-over';
                             $bar_color   = '#ef4444';
@@ -242,12 +248,21 @@ if ($faculty_loads) {
                             <div style="font-size:11px; color:var(--text-secondary);"><?= htmlspecialchars($row['faculty_code']) ?></div>
                         </td>
                         <td style="font-size:12px;"><?= htmlspecialchars($row['department']) ?></td>
+                        <td>
+                            <?php if ($job_type === 'Full-time'): ?>
+                                <span class="badge-fulltime">Full-time</span>
+                            <?php else: ?>
+                                <span class="badge-parttime">Part-time</span>
+                            <?php endif; ?>
+                        </td>
                         <td style="text-align:center; font-weight:700;"><?= $row['total_schedules'] ?></td>
                         <td style="text-align:center; font-weight:700; color:<?= $bar_color ?>;">
-                            <?= $assigned ?> hrs
+                            <?= $assigned ?> units
                         </td>
-                        <td style="text-align:center;"><?= $max ?> hrs</td>
-                        <td style="min-width:150px;">
+                        <td style="text-align:center;">
+                            <span class="units-max-badge"><?= $max_units ?> units</span>
+                        </td>
+                        <td style="min-width:160px;">
                             <div class="load-bar-wrap">
                                 <div class="load-bar-track">
                                     <div class="load-bar-fill" style="width:<?= $pct ?>%; background:<?= $bar_color ?>;"></div>
@@ -257,9 +272,9 @@ if ($faculty_loads) {
                         </td>
                         <td>
                             <span class="<?= $badge_class ?>"><?= $load_status ?></span>
-                            <?php if ($assigned > $max): ?>
+                            <?php if ($assigned > $max_units): ?>
                                 <div style="font-size:10px; color:#ef4444; margin-top:2px;">
-                                    +<?= round($assigned - $max, 1) ?> hrs over limit
+                                    +<?= ($assigned - $max_units) ?> units over limit
                                 </div>
                             <?php endif; ?>
                         </td>
@@ -274,7 +289,7 @@ if ($faculty_loads) {
                         </td>
                         <td>
                             <button class="btn-icon" title="View Schedules"
-                                onclick="viewFacultySchedule(<?= $row['faculty_id'] ?>, '<?= htmlspecialchars($row['first_name'].' '.$row['last_name']) ?>')">
+                                onclick="viewFacultySchedule(<?= $row['faculty_id'] ?>, '<?= htmlspecialchars($row['first_name'].' '.$row['last_name'], ENT_QUOTES) ?>')">
                                 <i class="bi bi-calendar3"></i>
                             </button>
                         </td>
@@ -309,7 +324,9 @@ if ($faculty_loads) {
 <script>
 const facultyScheduleData = <?php
     $sched_map = [];
-    $active_term_id = $activeTerm ? $conn->query("SELECT term_id FROM academic_terms WHERE is_active=1 LIMIT 1")->fetch_assoc()['term_id'] : 0;
+    $active_term_id = $activeTerm
+        ? $conn->query("SELECT term_id FROM academic_terms WHERE is_active=1 LIMIT 1")->fetch_assoc()['term_id']
+        : 0;
     $all_scheds = $conn->query("
         SELECT s.faculty_id, s.day_of_week, s.start_time, s.end_time,
                sub.subject_name, sub.subject_code,
@@ -329,7 +346,7 @@ const facultyScheduleData = <?php
 ?>;
 
 function viewFacultySchedule(facultyId, name) {
-    document.getElementById('facultyScheduleTitle').innerHTML = 
+    document.getElementById('facultyScheduleTitle').innerHTML =
         '<i class="bi bi-calendar3 me-2"></i>' + name + ' — Schedule';
 
     const scheds = facultyScheduleData[facultyId] ?? [];
@@ -346,24 +363,23 @@ function viewFacultySchedule(facultyId, name) {
             const start = s.start_time.substring(0, 5);
             const end   = s.end_time.substring(0, 5);
             const startMin = parseInt(start.split(':')[0]) * 60 + parseInt(start.split(':')[1]);
-            const endMin   = parseInt(end.split(':')[0]) * 60 + parseInt(end.split(':')[1]);
+            const endMin   = parseInt(end.split(':')[0])   * 60 + parseInt(end.split(':')[1]);
             const duration = ((endMin - startMin) / 60).toFixed(1) + ' hrs';
 
-            // Format to 12hr
             const fmt = t => {
                 let [h, m] = t.split(':').map(Number);
                 const ampm = h >= 12 ? 'PM' : 'AM';
                 h = h % 12 || 12;
-                return h + ':' + String(m).padStart(2,'0') + ' ' + ampm;
+                return h + ':' + String(m).padStart(2, '0') + ' ' + ampm;
             };
 
             html += '<tr>' +
                 '<td><strong>' + s.day_of_week + '</strong></td>' +
-                '<td>' + s.subject_code + ' - ' + s.subject_name + '</td>' +
+                '<td>' + s.subject_code + ' — ' + s.subject_name + '</td>' +
                 '<td>' + s.section_name + '</td>' +
                 '<td>' + fmt(start) + '</td>' +
-                '<td>' + fmt(end) + '</td>' +
-                '<td>' + duration + '</td>' +
+                '<td>' + fmt(end)   + '</td>' +
+                '<td>' + duration   + '</td>' +
                 '</tr>';
         });
 
@@ -377,27 +393,43 @@ function viewFacultySchedule(facultyId, name) {
 
 <style>
 /* Load progress bar */
-.load-bar-wrap { display:flex; align-items:center; gap:8px; }
+.load-bar-wrap  { display:flex; align-items:center; gap:8px; }
 .load-bar-track { flex:1; height:8px; background:var(--color-surface2); border-radius:99px; overflow:hidden; }
 .load-bar-fill  { height:100%; border-radius:99px; transition:width 0.4s ease; }
 .load-bar-pct   { font-size:11px; font-weight:700; color:var(--text-secondary); white-space:nowrap; min-width:32px; }
 
-/* Row highlights for overloaded */
-.load-over-row  { background: rgba(239,68,68,0.04) !important; }
-.load-near-row  { background: rgba(245,158,11,0.04) !important; }
+/* Row highlights */
+.load-over-row { background: rgba(239,68,68,0.04) !important; }
+.load-near-row { background: rgba(245,158,11,0.04) !important; }
 
 /* Legend */
 .legend-item { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--text-secondary); }
 .legend-dot  { width:10px; height:10px; border-radius:50%; display:inline-block; }
 
-/* Badge secondary for no load */
+/* No-load badge */
 .badge-secondary {
-    background: rgba(148,163,184,0.15);
-    color: #94a3b8;
-    padding: 3px 10px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 600;
+    background: rgba(148,163,184,0.15); color: #94a3b8;
+    padding: 3px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 600;
+}
+
+/* Job type badges */
+.badge-fulltime {
+    background: rgba(34,197,94,0.12); color: #22c55e;
+    padding: 3px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 700; white-space: nowrap;
+}
+.badge-parttime {
+    background: rgba(245,158,11,0.12); color: #f59e0b;
+    padding: 3px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 700; white-space: nowrap;
+}
+
+/* Max units display badge */
+.units-max-badge {
+    background: rgba(79,163,255,0.10); color: var(--accent);
+    padding: 3px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 700; white-space: nowrap;
 }
 
 /* Stats card red variant */

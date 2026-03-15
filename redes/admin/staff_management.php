@@ -13,14 +13,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ---------- ADD TEACHER ----------
     if (isset($_POST['action']) && $_POST['action'] === 'add_teacher') {
-        $faculty_code       = trim($_POST['faculty_code']);
-        $first_name         = trim($_POST['first_name']);
-        $last_name          = trim($_POST['last_name']);
-        $department         = trim($_POST['department']);
-        $email              = trim($_POST['email']);
-        $phone              = trim($_POST['phone']);
-        $max_teaching_hours = intval($_POST['max_teaching_hours']);
-        $status             = $_POST['status'];
+        $faculty_code  = trim($_POST['faculty_code']);
+        $first_name    = trim($_POST['first_name']);
+        $last_name     = trim($_POST['last_name']);
+        $department    = trim($_POST['department']);
+        $email         = trim($_POST['email']);
+        $phone         = trim($_POST['phone']);
+        $job_type      = $_POST['job_type'];
+        $total_units   = intval($_POST['total_units']);
+        $status        = $_POST['status'];
 
         $check = $conn->prepare("SELECT faculty_id FROM faculty WHERE faculty_code=? OR email=?");
         $check->bind_param("ss", $faculty_code, $email);
@@ -29,13 +30,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = "Faculty code or email already exists.";
         } else {
             $stmt = $conn->prepare("INSERT INTO faculty 
-                (faculty_code, first_name, last_name, department, email, phone, max_teaching_hours, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("ssssssis",
+                (faculty_code, first_name, last_name, department, email, phone, job_type, total_units, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param("sssssssis",
                 $faculty_code, $first_name, $last_name,
-                $department, $email, $phone, $max_teaching_hours, $status);
+                $department, $email, $phone, $job_type, $total_units, $status);
             if ($stmt->execute()) {
-                $success   = "Teacher added successfully!";
+                $success    = "Teacher added successfully!";
                 $active_tab = 'teachers';
             } else {
                 $errors[] = "Error adding teacher: " . $conn->error;
@@ -45,16 +46,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ---------- EDIT TEACHER ----------
     if (isset($_POST['action']) && $_POST['action'] === 'edit_teacher') {
-        $faculty_id         = intval($_POST['faculty_id']);
-        $first_name         = trim($_POST['first_name']);
-        $last_name          = trim($_POST['last_name']);
-        $department         = trim($_POST['department']);
-        $email              = trim($_POST['email']);
-        $phone              = trim($_POST['phone']);
-        $max_teaching_hours = intval($_POST['max_teaching_hours']);
-        $status             = $_POST['status'];
+        $faculty_id  = intval($_POST['faculty_id']);
+        $first_name  = trim($_POST['first_name']);
+        $last_name   = trim($_POST['last_name']);
+        $department  = trim($_POST['department']);
+        $email       = trim($_POST['email']);
+        $phone       = trim($_POST['phone']);
+        $job_type    = $_POST['job_type'];
+        $total_units = intval($_POST['total_units']);
+        $status      = $_POST['status'];
 
-        // ── DUPLICATE EMAIL CHECK (exclude self) ──
         $dupCheck = $conn->prepare("SELECT faculty_id FROM faculty WHERE email=? AND faculty_id != ?");
         $dupCheck->bind_param("si", $email, $faculty_id);
         $dupCheck->execute();
@@ -62,16 +63,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[]   = "That email is already used by another teacher.";
             $active_tab = 'teachers';
         } else {
-            // faculty_code is NOT updated — kept readonly
             $stmt = $conn->prepare("UPDATE faculty SET
                 first_name=?, last_name=?, department=?,
-                email=?, phone=?, max_teaching_hours=?, status=?
+                email=?, phone=?, job_type=?, total_units=?, status=?
                 WHERE faculty_id=?");
-            $stmt->bind_param("sssssisi",
+            $stmt->bind_param("ssssssisi",
                 $first_name, $last_name, $department,
-                $email, $phone, $max_teaching_hours, $status, $faculty_id);
+                $email, $phone, $job_type, $total_units, $status, $faculty_id);
             if ($stmt->execute()) {
-                $success   = "Teacher updated successfully!";
+                $success    = "Teacher updated successfully!";
                 $active_tab = 'teachers';
             } else {
                 $errors[] = "Error updating teacher: " . $conn->error;
@@ -207,14 +207,12 @@ $teacher_count   = $teachers   ? $teachers->num_rows   : 0;
 $registrar_count = $registrars ? $registrars->num_rows : 0;
 
 // ── AUTO-GENERATE NEXT FACULTY CODE ──
-// Find highest existing FAC-XXX number and increment
 $maxCode = $conn->query("SELECT faculty_code FROM faculty WHERE faculty_code LIKE 'FAC-%' ORDER BY faculty_code DESC")->fetch_assoc();
 $nextNum = 1;
 if ($maxCode) {
     $parts   = explode('-', $maxCode['faculty_code']);
     $nextNum = intval(end($parts)) + 1;
 }
-// Build list of all available codes (any gaps + next new one)
 $usedCodes = [];
 $usedRes   = $conn->query("SELECT faculty_code FROM faculty WHERE faculty_code LIKE 'FAC-%'");
 while ($uc = $usedRes->fetch_assoc()) $usedCodes[] = $uc['faculty_code'];
@@ -225,13 +223,13 @@ for ($i = 1; $i <= $nextNum; $i++) {
     if (!in_array($code, $usedCodes)) $availableCodes[] = $code;
 }
 
-// Department options (shared between teacher + registrar)
+// Department options
 $departments = [
-    'College of Computer Studies (CCS)'                     => 'CCS — BS Information Technology (BSIT)',
-    'College of Hospitality and Tourism Management (CHTM)'  => 'CHTM — BS Tourism Management (BSTM)',
-    'College of Business Administration (CBA)'              => 'CBA — BS Business Administration (BSBA)',
-    'College of Criminal Justice Education (CCJE)'          => 'CCJE — BS Criminology (BS Crim)',
-    'College of Engineering (COE)'                          => 'COE — BS Civil Engineering (BSCE)',
+    'College of Computer Studies (CCS)'                    => 'CCS — BS Information Technology (BSIT)',
+    'College of Hospitality and Tourism Management (CHTM)' => 'CHTM — BS Tourism Management (BSTM)',
+    'College of Business Administration (CBA)'             => 'CBA — BS Business Administration (BSBA)',
+    'College of Criminal Justice Education (CCJE)'         => 'CCJE — BS Criminology (BS Crim)',
+    'College of Engineering (COE)'                         => 'COE — BS Civil Engineering (BSCE)',
 ];
 ?>
 
@@ -304,7 +302,6 @@ $departments = [
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h5 class="mb-0" style="color:var(--text-primary); font-weight:700;">Teacher List</h5>
             <div class="d-flex gap-2 align-items-center">
-                <!-- SEARCH BOX -->
                 <input type="text" id="teacherSearch" class="form-control form-control-sm"
                     placeholder="Search name, code, dept…" style="width:220px;"
                     oninput="filterTeachers()">
@@ -323,7 +320,8 @@ $departments = [
                         <th>Department</th>
                         <th>Email</th>
                         <th>Phone</th>
-                        <th>Max Hrs</th>
+                        <th>Job Type</th>
+                        <th>Total Units</th>
                         <th>Status</th>
                         <th>Actions</th>
                     </tr>
@@ -340,7 +338,19 @@ $departments = [
                         <td><?= htmlspecialchars($t['department']) ?></td>
                         <td><?= htmlspecialchars($t['email']) ?></td>
                         <td><?= htmlspecialchars($t['phone'] ?? '—') ?></td>
-                        <td><?= $t['max_teaching_hours'] ?> hrs</td>
+                        <td>
+                            <?php $jt = $t['job_type'] ?? 'Full-time'; ?>
+                            <?php if ($jt === 'Full-time'): ?>
+                                <span class="badge-fulltime">Full-time</span>
+                            <?php else: ?>
+                                <span class="badge-parttime">Part-time</span>
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <span class="units-badge">
+                                <?= intval($t['total_units'] ?? 0) ?> units
+                            </span>
+                        </td>
                         <td>
                             <?php if ($t['status'] === 'Active'): ?>
                                 <span class="badge-success">Active</span>
@@ -362,7 +372,7 @@ $departments = [
                         </td>
                     </tr>
                     <?php endwhile; else: ?>
-                    <tr id="noTeacherRow"><td colspan="8" class="text-center py-3">No teachers found. Add one!</td></tr>
+                    <tr id="noTeacherRow"><td colspan="9" class="text-center py-3">No teachers found. Add one!</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>
@@ -452,8 +462,9 @@ $departments = [
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
+
+                    <!-- ROW 1: Faculty Code, First Name, Last Name -->
                     <div class="row">
-                        <!-- AUTO-GENERATED FACULTY CODE (no manual entry needed) -->
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Faculty Code <span class="text-danger">*</span></label>
                             <select name="faculty_code" class="form-select" required>
@@ -473,13 +484,14 @@ $departments = [
                             <input type="text" name="last_name" class="form-control" required>
                         </div>
                     </div>
+
+                    <!-- ROW 2: Department, Email -->
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Department <span class="text-danger">*</span></label>
                             <select name="department" class="form-select" required>
                                 <option value="">Select Department</option>
-                                <?php foreach ($departments as $val => $label):
-                                    if ($val === "Registrar's Office") continue; // Teachers don't use this ?>
+                                <?php foreach ($departments as $val => $label): ?>
                                     <option value="<?= htmlspecialchars($val) ?>"><?= htmlspecialchars($label) ?></option>
                                 <?php endforeach; ?>
                             </select>
@@ -489,16 +501,29 @@ $departments = [
                             <input type="email" name="email" class="form-control" required>
                         </div>
                     </div>
+
+                    <!-- ROW 3: Phone, Job Type, Total Units, Status -->
                     <div class="row">
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-3 mb-3">
                             <label class="form-label">Phone</label>
-                            <input type="text" name="phone" class="form-control" placeholder="e.g. 09XXXXXXXXX">
+                            <input type="text" name="phone" class="form-control" placeholder="09XXXXXXXXX">
                         </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">Max Teaching Hours</label>
-                            <input type="number" name="max_teaching_hours" class="form-control" value="24" min="1" max="40">
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Job Type <span class="text-danger">*</span></label>
+                            <select name="job_type" id="add_job_type" class="form-select" required
+                                onchange="setDefaultUnits(this.value, 'add_total_units')">
+                                <option value="Full-time">Full-time</option>
+                                <option value="Part-time">Part-time</option>
+                            </select>
                         </div>
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Total Units</label>
+                            <input type="number" name="total_units" id="add_total_units"
+                                class="form-control" value="39" readonly
+                                style="background:var(--color-surface2); cursor:not-allowed; font-weight:700;">
+                            <small class="text-muted">Auto-set by Job Type</small>
+                        </div>
+                        <div class="col-md-3 mb-3">
                             <label class="form-label">Status</label>
                             <select name="status" class="form-select">
                                 <option value="Active">Active</option>
@@ -507,6 +532,7 @@ $departments = [
                             </select>
                         </div>
                     </div>
+
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn-secondary-custom" data-bs-dismiss="modal">Cancel</button>
@@ -534,8 +560,9 @@ $departments = [
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
+
+                    <!-- ROW 1: Faculty Code (readonly), First Name, Last Name -->
                     <div class="row">
-                        <!-- FACULTY CODE: readonly — cannot be changed after creation -->
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Faculty Code</label>
                             <input type="text" id="edit_faculty_code_display" class="form-control" readonly
@@ -551,13 +578,14 @@ $departments = [
                             <input type="text" name="last_name" id="edit_last_name" class="form-control" required>
                         </div>
                     </div>
+
+                    <!-- ROW 2: Department, Email -->
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Department</label>
                             <select name="department" id="edit_department" class="form-select" required>
                                 <option value="">Select Department</option>
-                                <?php foreach ($departments as $val => $label):
-                                    if ($val === "Registrar's Office") continue; ?>
+                                <?php foreach ($departments as $val => $label): ?>
                                     <option value="<?= htmlspecialchars($val) ?>"><?= htmlspecialchars($label) ?></option>
                                 <?php endforeach; ?>
                             </select>
@@ -567,16 +595,29 @@ $departments = [
                             <input type="email" name="email" id="edit_email" class="form-control" required>
                         </div>
                     </div>
+
+                    <!-- ROW 3: Phone, Job Type, Total Units, Status -->
                     <div class="row">
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-3 mb-3">
                             <label class="form-label">Phone</label>
                             <input type="text" name="phone" id="edit_phone" class="form-control">
                         </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">Max Teaching Hours</label>
-                            <input type="number" name="max_teaching_hours" id="edit_max_hours" class="form-control" min="1" max="40">
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Job Type</label>
+                            <select name="job_type" id="edit_job_type" class="form-select" required
+                                onchange="setDefaultUnits(this.value, 'edit_total_units')">
+                                <option value="Full-time">Full-time</option>
+                                <option value="Part-time">Part-time</option>
+                            </select>
                         </div>
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Total Units</label>
+                            <input type="number" name="total_units" id="edit_total_units"
+                                class="form-control" readonly
+                                style="background:var(--color-surface2); cursor:not-allowed; font-weight:700;">
+                            <small class="text-muted">Auto-set by Job Type</small>
+                        </div>
+                        <div class="col-md-3 mb-3">
                             <label class="form-label">Status</label>
                             <select name="status" id="edit_status" class="form-select">
                                 <option value="Active">Active</option>
@@ -585,6 +626,7 @@ $departments = [
                             </select>
                         </div>
                     </div>
+
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn-secondary-custom" data-bs-dismiss="modal">Cancel</button>
@@ -639,14 +681,12 @@ $departments = [
                                 oninput="checkPwPolicy(this.value,'add')">
                         </div>
                     </div>
-                    <!-- Password Policy Checker -->
                     <div class="mb-3" id="add_pw_policy" style="background:var(--color-surface2);border-radius:8px;padding:10px 14px;font-size:12.5px;display:none;">
                         <div style="font-weight:600;margin-bottom:6px;color:var(--text-secondary);">Password must have:</div>
                         <div id="add_rule_len" class="pw-rule"><i class="bi bi-x-circle-fill"></i> At least 8 characters</div>
                         <div id="add_rule_num" class="pw-rule"><i class="bi bi-x-circle-fill"></i> At least 1 number</div>
                         <div id="add_rule_spc" class="pw-rule"><i class="bi bi-x-circle-fill"></i> At least 1 special character</div>
                     </div>
-                    <!-- DEPARTMENT DROPDOWN -->
                     <div class="mb-3">
                         <label class="form-label">Department <span class="text-danger">*</span></label>
                         <select name="reg_department" class="form-select" required>
@@ -694,7 +734,6 @@ $departments = [
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <!-- Show username (readonly info) -->
                     <div class="mb-3">
                         <label class="form-label">Username</label>
                         <input type="text" id="edit_reg_username_display" class="form-control" readonly
@@ -711,14 +750,12 @@ $departments = [
                             placeholder="Enter new password or leave blank"
                             oninput="checkPwPolicy(this.value,'edit')">
                     </div>
-                    <!-- Password Policy Checker -->
                     <div class="mb-3" id="edit_pw_policy" style="background:var(--color-surface2);border-radius:8px;padding:10px 14px;font-size:12.5px;display:none;">
                         <div style="font-weight:600;margin-bottom:6px;color:var(--text-secondary);">Password must have:</div>
                         <div id="edit_rule_len" class="pw-rule"><i class="bi bi-x-circle-fill"></i> At least 8 characters</div>
                         <div id="edit_rule_num" class="pw-rule"><i class="bi bi-x-circle-fill"></i> At least 1 number</div>
                         <div id="edit_rule_spc" class="pw-rule"><i class="bi bi-x-circle-fill"></i> At least 1 special character</div>
                     </div>
-                    <!-- DEPARTMENT DROPDOWN -->
                     <div class="mb-3">
                         <label class="form-label">Department</label>
                         <select name="reg_department" id="edit_reg_department" class="form-select">
@@ -786,15 +823,40 @@ $departments = [
 .staff-tab.active .tab-count { background:var(--accent); color:#fff; }
 .pw-rule { display:flex; align-items:center; gap:7px; padding:2px 0; color:var(--text-muted); transition:color 0.2s; }
 .pw-rule i { font-size:13px; flex-shrink:0; }
+
+/* Job Type badges */
+.badge-fulltime {
+    background: rgba(34,197,94,0.12); color: #22c55e;
+    padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700;
+    white-space: nowrap;
+}
+.badge-parttime {
+    background: rgba(245,158,11,0.12); color: #f59e0b;
+    padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700;
+    white-space: nowrap;
+}
+
+/* Total Units badge */
+.units-badge {
+    background: rgba(79,163,255,0.10); color: var(--accent);
+    padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700;
+    white-space: nowrap;
+}
 </style>
 
 <script>
+// ── AUTO-SET UNITS WHEN JOB TYPE CHANGES ──
+function setDefaultUnits(jobType, targetId) {
+    const input = document.getElementById(targetId);
+    if (!input) return;
+    input.value = jobType === 'Full-time' ? 39 : 18;
+}
+
 // ── TEACHER TABLE SEARCH ──
 function filterTeachers() {
     const q     = document.getElementById('teacherSearch').value.toLowerCase();
     const rows  = document.querySelectorAll('#teacherTbody tr');
     let visible = 0;
-
     rows.forEach(row => {
         if (row.id === 'noTeacherRow') return;
         const text = row.textContent.toLowerCase();
@@ -802,7 +864,6 @@ function filterTeachers() {
         row.style.display = show ? '' : 'none';
         if (show) visible++;
     });
-
     document.getElementById('teacherNoResults').style.display =
         (visible === 0 && q.length > 0) ? 'block' : 'none';
 }
@@ -816,20 +877,19 @@ function previewUsername(email) {
 
 // ── TEACHER EDIT ──
 function openEditTeacher(t) {
-    document.getElementById('edit_faculty_id').value          = t.faculty_id;
-    document.getElementById('edit_faculty_code_display').value = t.faculty_code; // readonly display
-    document.getElementById('edit_first_name').value          = t.first_name;
-    document.getElementById('edit_last_name').value           = t.last_name;
-    document.getElementById('edit_email').value               = t.email;
-    document.getElementById('edit_phone').value               = t.phone ?? '';
-    document.getElementById('edit_max_hours').value           = t.max_teaching_hours;
-    document.getElementById('edit_status').value              = t.status;
+    document.getElementById('edit_faculty_id').value           = t.faculty_id;
+    document.getElementById('edit_faculty_code_display').value = t.faculty_code;
+    document.getElementById('edit_first_name').value           = t.first_name;
+    document.getElementById('edit_last_name').value            = t.last_name;
+    document.getElementById('edit_email').value                = t.email;
+    document.getElementById('edit_phone').value                = t.phone ?? '';
+    document.getElementById('edit_job_type').value             = t.job_type ?? 'Full-time';
+    document.getElementById('edit_total_units').value          = t.total_units ?? (t.job_type === 'Part-time' ? 18 : 39);
+    document.getElementById('edit_status').value               = t.status;
 
-    // Set department dropdown — handles exact match
     const deptSel = document.getElementById('edit_department');
     deptSel.value = t.department;
     if (deptSel.value !== t.department) {
-        // Dept not in list — add it so data isn't lost
         const opt = document.createElement('option');
         opt.value = t.department;
         opt.textContent = t.department;
@@ -849,14 +909,13 @@ function confirmDeleteTeacher(id, name) {
 
 // ── REGISTRAR EDIT ──
 function openEditRegistrar(r) {
-    document.getElementById('edit_account_id').value          = r.account_id;
-    document.getElementById('edit_reg_username_display').value = r.username; // show username readonly
-    document.getElementById('edit_reg_fullname').value        = r.full_name;
-    document.getElementById('edit_reg_email').value           = r.email   ?? '';
-    document.getElementById('edit_reg_phone').value           = r.phone   ?? '';
-    document.getElementById('edit_reg_status').value          = r.status;
+    document.getElementById('edit_account_id').value           = r.account_id;
+    document.getElementById('edit_reg_username_display').value = r.username;
+    document.getElementById('edit_reg_fullname').value         = r.full_name;
+    document.getElementById('edit_reg_email').value            = r.email   ?? '';
+    document.getElementById('edit_reg_phone').value            = r.phone   ?? '';
+    document.getElementById('edit_reg_status').value           = r.status;
 
-    // Set department dropdown
     const deptSel = document.getElementById('edit_reg_department');
     deptSel.value = r.department ?? '';
     if (r.department && deptSel.value !== r.department) {

@@ -123,15 +123,45 @@ if (!$activeTermRow) {
 }
 
 /* =================================================
-   FILTER BY SECTION
+   DEPARTMENT & YEAR FILTER
 ================================================= */
-$filter_section = $_GET['section_id'] ?? '';
+$departmentToPrograms = [
+    'CCS'  => ['BSIT'],
+    'CHTM' => ['BSTM'],
+    'CBA'  => ['BSBA'],
+    'CCJE' => ['BSCRIM'],
+    'COE'  => ['BSCE'],
+];
+$departmentLabels = [
+    'CCS'  => 'College of Computer Studies (CCS)',
+    'CHTM' => 'College of Hospitality and Tourism Management (CHTM)',
+    'CBA'  => 'College of Business Administration (CBA)',
+    'CCJE' => 'College of Criminal Justice Education (CCJE)',
+    'COE'  => 'College of Engineering (COE)',
+];
+
+$filter_department = $_GET['department'] ?? '';
+$filter_year       = $_GET['year'] ?? '';
+
+// Build WHERE clause
+$where_parts = ["s.term_id = $active_term_id"];
+
+if ($filter_department && isset($departmentToPrograms[$filter_department])) {
+    $programs = $departmentToPrograms[$filter_department];
+    $escaped  = array_map(fn($p) => "'" . $conn->real_escape_string($p) . "'", $programs);
+    $where_parts[] = "sec.program IN (" . implode(',', $escaped) . ")";
+}
+
+if ($filter_year && in_array($filter_year, ['1','2','3','4'])) {
+    // Section names encode year as first digit after the dash, e.g. BSIT-1A, BSCRIM-2B
+   $where_parts[] = "sec.section_name REGEXP ' {$filter_year}[0-9]'";
+}
+
+$where_sql = implode(' AND ', $where_parts);
 
 /* =================================================
    FETCH SCHEDULES
 ================================================= */
-$where_section = $filter_section ? "AND s.section_id = " . intval($filter_section) : "";
-
 $schedules_result = $conn->query("
     SELECT s.*, 
            sec.section_name, sec.program,
@@ -143,7 +173,7 @@ $schedules_result = $conn->query("
     JOIN subjects sub ON s.subject_id = sub.subject_id
     JOIN faculty f ON s.faculty_id = f.faculty_id
     LEFT JOIN rooms r ON s.room_id = r.room_id
-    WHERE s.term_id = $active_term_id $where_section
+    WHERE $where_sql
     ORDER BY 
         FIELD(s.day_of_week, 'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'),
         s.start_time
@@ -238,6 +268,16 @@ if ($subjects_res) {
 }
 
 $active_tab = $_GET['tab'] ?? 'grid';
+
+// Build filter query string for tab links
+function build_filter_qs($extra = []) {
+    global $filter_department, $filter_year;
+    $params = [];
+    if ($filter_department) $params['department'] = $filter_department;
+    if ($filter_year)       $params['year']       = $filter_year;
+    foreach ($extra as $k => $v) $params[$k] = $v;
+    return $params ? '?' . http_build_query($params) : '';
+}
 ?>
 
 <?php include '../includes/header.php'; ?>
@@ -254,34 +294,61 @@ $active_tab = $_GET['tab'] ?? 'grid';
         </button>
     </div>
 
-    <!-- FILTER BY SECTION -->
+    <!-- FILTER BY DEPARTMENT & YEAR -->
     <div class="content-card mb-4">
         <form method="GET" class="d-flex align-items-center gap-3 flex-wrap">
-            <label class="form-label mb-0" style="white-space:nowrap;">Filter by Section:</label>
-            <select name="section_id" class="form-select" style="max-width:220px;" onchange="this.form.submit()">
-                <option value="">— All Sections —</option>
-                <?php foreach ($sections_list as $s): ?>
-                    <option value="<?= $s['section_id'] ?>" <?= $filter_section == $s['section_id'] ? 'selected' : '' ?>>
-                        <?= htmlspecialchars($s['section_name']) ?>
+            <input type="hidden" name="tab" value="<?= htmlspecialchars($active_tab) ?>">
+
+            <label class="form-label mb-0" style="white-space:nowrap;">
+                <i class="bi bi-building me-1"></i>Department:
+            </label>
+            <select name="department" class="form-select" style="max-width:280px;" onchange="this.form.submit()">
+                <option value="">— All Departments —</option>
+                <?php foreach ($departmentLabels as $code => $label): ?>
+                    <option value="<?= $code ?>" <?= $filter_department === $code ? 'selected' : '' ?>>
+                        <?= htmlspecialchars($label) ?>
                     </option>
                 <?php endforeach; ?>
             </select>
-            <?php if ($filter_section): ?>
-                <a href="schedules.php" class="btn-secondary-custom">
-                    <i class="bi bi-x-lg me-1"></i>Clear Filter
+
+            <label class="form-label mb-0" style="white-space:nowrap;">
+                <i class="bi bi-mortarboard me-1"></i>Year Level:
+            </label>
+            <select name="year" class="form-select" style="max-width:160px;" onchange="this.form.submit()">
+                <option value="">— All Years —</option>
+                <option value="1" <?= $filter_year === '1' ? 'selected' : '' ?>>1st Year</option>
+                <option value="2" <?= $filter_year === '2' ? 'selected' : '' ?>>2nd Year</option>
+                <option value="3" <?= $filter_year === '3' ? 'selected' : '' ?>>3rd Year</option>
+                <option value="4" <?= $filter_year === '4' ? 'selected' : '' ?>>4th Year</option>
+            </select>
+
+            <?php if ($filter_department || $filter_year): ?>
+                <a href="schedules.php?tab=<?= htmlspecialchars($active_tab) ?>" class="btn-secondary-custom">
+                    <i class="bi bi-x-lg me-1"></i>Clear Filters
                 </a>
+            <?php endif; ?>
+
+            <?php if ($filter_department || $filter_year): ?>
+                <span class="filter-active-badge">
+                    <?php
+                    $badge_parts = [];
+                    if ($filter_department) $badge_parts[] = $departmentLabels[$filter_department] ?? $filter_department;
+                    if ($filter_year)       $badge_parts[] = $filter_year . ($filter_year == 1 ? 'st' : ($filter_year == 2 ? 'nd' : ($filter_year == 3 ? 'rd' : 'th'))) . ' Year';
+                    echo htmlspecialchars(implode(' · ', $badge_parts));
+                    ?>
+                </span>
             <?php endif; ?>
         </form>
     </div>
 
     <!-- TABS -->
     <div class="content-card mb-4">
-        <div class="schedule-tabs mb-3">
-            <a href="?tab=grid<?= $filter_section ? '&section_id='.$filter_section : '' ?>" 
+        <div class="schedule-tabs mb-0">
+            <a href="schedules.php<?= build_filter_qs(['tab' => 'grid']) ?>" 
                class="schedule-tab <?= $active_tab === 'grid' ? 'active' : '' ?>">
                 <i class="bi bi-grid-3x3-gap-fill me-1"></i> Timetable Grid
             </a>
-            <a href="?tab=list<?= $filter_section ? '&section_id='.$filter_section : '' ?>" 
+            <a href="schedules.php<?= build_filter_qs(['tab' => 'list']) ?>" 
                class="schedule-tab <?= $active_tab === 'list' ? 'active' : '' ?>">
                 <i class="bi bi-list-ul me-1"></i> Schedule List
             </a>
@@ -294,12 +361,16 @@ $active_tab = $_GET['tab'] ?? 'grid';
         <h5 style="color:var(--text-primary); font-weight:700; font-family:var(--font-display); margin:0;">
             <i class="bi bi-grid-3x3-gap-fill me-2" style="color:var(--accent);"></i>
             Timetable Grid
-            <?php if ($filter_section): ?>
-                <?php
-                $sec_name_r = $conn->query("SELECT section_name FROM sections WHERE section_id=" . intval($filter_section));
-                $sec_name   = $sec_name_r ? $sec_name_r->fetch_assoc()['section_name'] : '';
-                ?>
-                <span style="color:var(--accent); font-size:14px;"> — <?= htmlspecialchars($sec_name) ?></span>
+            <?php if ($filter_department || $filter_year): ?>
+                <span style="color:var(--accent); font-size:13px; font-weight:500;">
+                    — 
+                    <?php
+                    $parts = [];
+                    if ($filter_department) $parts[] = $departmentLabels[$filter_department] ?? $filter_department;
+                    if ($filter_year)       $parts[] = $filter_year . ($filter_year==1?'st':($filter_year==2?'nd':($filter_year==3?'rd':'th'))) . ' Year';
+                    echo htmlspecialchars(implode(', ', $parts));
+                    ?>
+                </span>
             <?php endif; ?>
         </h5>
     </div>
@@ -346,6 +417,17 @@ $active_tab = $_GET['tab'] ?? 'grid';
 <div class="content-card">
     <h5 class="mb-3" style="color:var(--text-primary); font-weight:700; font-family:var(--font-display);">
         <i class="bi bi-list-ul me-2" style="color:var(--accent);"></i>Schedule List
+        <?php if ($filter_department || $filter_year): ?>
+            <span style="color:var(--accent); font-size:13px; font-weight:500;">
+                — 
+                <?php
+                $parts = [];
+                if ($filter_department) $parts[] = $departmentLabels[$filter_department] ?? $filter_department;
+                if ($filter_year)       $parts[] = $filter_year . ($filter_year==1?'st':($filter_year==2?'nd':($filter_year==3?'rd':'th'))) . ' Year';
+                echo htmlspecialchars(implode(', ', $parts));
+                ?>
+            </span>
+        <?php endif; ?>
     </h5>
     <div class="table-responsive">
         <table class="custom-table">
@@ -489,7 +571,7 @@ $active_tab = $_GET['tab'] ?? 'grid';
 
 
 <!-- ================================================================
-     EDIT MODAL — faculty filtered by section's program (same as Add)
+     EDIT MODAL
 ================================================================ -->
 <div class="modal fade" id="editScheduleModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
@@ -503,20 +585,16 @@ $active_tab = $_GET['tab'] ?? 'grid';
                 </div>
                 <div class="modal-body">
                     <div class="row">
-                        <!-- Section: readonly display -->
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Section / Room</label>
                             <input type="text" id="edit_section_display" class="form-control" readonly>
                         </div>
-                        <!-- Subject: readonly display -->
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Subject</label>
                             <input type="text" id="edit_subject_display" class="form-control" readonly>
                         </div>
                     </div>
-
                     <div class="row">
-                        <!-- FACULTY: filtered by section's program — same behaviour as Add -->
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Faculty</label>
                             <select name="faculty_id" id="edit_faculty_id" class="form-select" required>
@@ -524,7 +602,6 @@ $active_tab = $_GET['tab'] ?? 'grid';
                             </select>
                             <small class="text-muted" id="edit_faculty_hint"></small>
                         </div>
-                        <!-- STATUS -->
                         <div class="col-md-3 mb-3">
                             <label class="form-label">Status</label>
                             <select name="status" id="edit_status" class="form-select" required>
@@ -533,7 +610,6 @@ $active_tab = $_GET['tab'] ?? 'grid';
                             </select>
                         </div>
                     </div>
-
                     <div class="row">
                         <div class="col-md-4 mb-3">
                             <label class="form-label">Day</label>
@@ -584,11 +660,9 @@ $active_tab = $_GET['tab'] ?? 'grid';
 
 
 <script>
-// ── DATA FROM PHP ──
 const allSubjects = <?= json_encode($all_subs) ?>;
 const allFaculty  = <?= json_encode($faculty_list) ?>;
 
-// Program → subject code prefix (BSCRIM → BSCR in subject codes)
 const programToSubjectPrefix = {
     'BSIT':   'BSIT',
     'BSTM':   'BSTM',
@@ -597,7 +671,6 @@ const programToSubjectPrefix = {
     'BSCE':   'BSCE'
 };
 
-// Program → exact department string as stored in faculty.department
 const programToDepartment = {
     'BSIT':   'College of Computer Studies (CCS)',
     'BSTM':   'College of Hospitality and Tourism Management (CHTM)',
@@ -606,7 +679,6 @@ const programToDepartment = {
     'BSCE':   'College of Engineering (COE)'
 };
 
-// Short label for hints
 const programToShortDept = {
     'BSIT':   'CCS Department',
     'BSTM':   'CHTM Department',
@@ -615,64 +687,46 @@ const programToShortDept = {
     'BSCE':   'COE Department'
 };
 
-// ── SHARED: populate faculty dropdown filtered by program ──
 function populateFacultyDropdown(selectEl, hintEl, program, selectedFacultyId) {
     selectEl.innerHTML = '';
     hintEl.textContent = '';
-
     const department = programToDepartment[program] ?? '';
     const shortDept  = programToShortDept[program]  ?? '';
-
     const emptyOpt = document.createElement('option');
     emptyOpt.value = '';
     emptyOpt.textContent = '— Select Faculty —';
     selectEl.appendChild(emptyOpt);
-
     let count = 0;
     allFaculty.forEach(fac => {
         if (fac.department.trim() === department.trim()) {
             const opt = document.createElement('option');
             opt.value       = fac.faculty_id;
             opt.textContent = fac.last_name + ', ' + fac.first_name;
-            if (String(fac.faculty_id) === String(selectedFacultyId)) {
-                opt.selected = true;
-            }
+            if (String(fac.faculty_id) === String(selectedFacultyId)) opt.selected = true;
             selectEl.appendChild(opt);
             count++;
         }
     });
-
     if (count > 0) {
-        hintEl.innerHTML = '<i class="bi bi-funnel-fill me-1"></i>Showing <strong>'
-            + count + '</strong> faculty from <strong>' + shortDept + '</strong>';
+        hintEl.innerHTML = '<i class="bi bi-funnel-fill me-1"></i>Showing <strong>' + count + '</strong> faculty from <strong>' + shortDept + '</strong>';
     } else {
-        hintEl.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1" style="color:#f59e0b;"></i>'
-            + 'No active faculty found in ' + shortDept;
+        hintEl.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1" style="color:#f59e0b;"></i>No active faculty found in ' + shortDept;
     }
 }
 
-// ── SHARED: populate subject dropdown filtered by program + year/sem ──
 function populateSubjectDropdown(selectEl, program, sectionCode) {
     selectEl.innerHTML = '<option value="">Select Subject</option>';
-
     const digits  = sectionCode.replace(/[^0-9]/g, '');
     const yearNum = digits[0] ?? '';
     const semNum  = digits[1] ?? '';
-
     const yearMap = { '1': '1st Year', '2': '2nd Year', '3': '3rd Year', '4': '4th Year' };
     const semMap  = { '1': '1st Sem',  '2': '2nd Sem' };
-
     const yearText = yearMap[yearNum] ?? '';
     const semText  = semMap[semNum]  ?? '';
     const prefix   = programToSubjectPrefix[program] ?? program;
-
     let count = 0;
     allSubjects.forEach(sub => {
-        if (
-            sub.subject_code.startsWith(prefix) &&
-            sub.year_level.includes(yearText) &&
-            sub.year_level.includes(semText)
-        ) {
+        if (sub.subject_code.startsWith(prefix) && sub.year_level.includes(yearText) && sub.year_level.includes(semText)) {
             const opt = document.createElement('option');
             opt.value       = sub.subject_id;
             opt.textContent = sub.subject_name;
@@ -680,45 +734,34 @@ function populateSubjectDropdown(selectEl, program, sectionCode) {
             count++;
         }
     });
-
-    if (count === 0) {
-        selectEl.innerHTML = '<option value="">No subjects found for this section</option>';
-    }
+    if (count === 0) selectEl.innerHTML = '<option value="">No subjects found for this section</option>';
 }
 
-// ── ADD MODAL: section change listener ──
-const addSectionSel = document.getElementById('add_section_id');
-const addSubjectSel = document.getElementById('add_subject_id');
-const addFacultySel = document.getElementById('add_faculty_id');
+const addSectionSel  = document.getElementById('add_section_id');
+const addSubjectSel  = document.getElementById('add_subject_id');
+const addFacultySel  = document.getElementById('add_faculty_id');
 const addFacultyHint = document.getElementById('add_faculty_hint');
 
 addSectionSel.addEventListener('change', function () {
     const opt      = this.options[this.selectedIndex];
     const program  = opt.dataset.program ?? '';
     const secLabel = opt.textContent.trim().split(' / ')[0].trim();
-
     addSubjectSel.innerHTML = '<option value="">Select Subject</option>';
     addFacultySel.innerHTML = '<option value="">Select Faculty</option>';
     addFacultyHint.textContent = '';
-
     if (!program) return;
-
     populateSubjectDropdown(addSubjectSel, program, secLabel);
     populateFacultyDropdown(addFacultySel, addFacultyHint, program, '');
 });
 
-// ── EDIT MODAL: open with section's program pre-applied ──
 function openEditSchedule(data) {
     document.getElementById('edit_schedule_id').value  = data.schedule_id;
-    document.getElementById('edit_section_display').value =
-        data.section_name + ' / ' + (data.room_name ?? '(No Assigned Room Yet)');
+    document.getElementById('edit_section_display').value = data.section_name + ' / ' + (data.room_name ?? '(No Assigned Room Yet)');
     document.getElementById('edit_subject_display').value = data.subject_name;
     document.getElementById('edit_status').value       = data.status;
     document.getElementById('edit_day_of_week').value  = data.day_of_week;
     document.getElementById('edit_start_time').value   = data.start_time;
     document.getElementById('edit_end_time').value     = data.end_time;
-
-    // Filter faculty by the section's program, pre-select current faculty
     const program = data.program ?? '';
     populateFacultyDropdown(
         document.getElementById('edit_faculty_id'),
@@ -726,11 +769,9 @@ function openEditSchedule(data) {
         program,
         data.faculty_id
     );
-
     new bootstrap.Modal(document.getElementById('editScheduleModal')).show();
 }
 
-// ── DELETE ──
 function confirmDeleteSchedule(id) {
     if (confirm('Are you sure you want to delete this schedule?')) {
         document.getElementById('delete_schedule_id').value = id;
@@ -738,7 +779,6 @@ function confirmDeleteSchedule(id) {
     }
 }
 
-// ── END TIME FILTER (disable earlier times) ──
 function filterEndTimes(startId, endId) {
     document.getElementById(startId).addEventListener('change', function () {
         const endSel = document.getElementById(endId);
@@ -754,6 +794,15 @@ filterEndTimes('edit_start_time', 'edit_end_time');
 </script>
 
 <style>
+.filter-active-badge {
+    background: rgba(79,163,255,0.12);
+    border: 1px solid rgba(79,163,255,0.3);
+    color: var(--accent);
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
 .timetable-grid { width:100%; border-collapse:collapse; font-size:12px; min-width:900px; }
 .timetable-grid thead th { background:var(--color-surface2); color:var(--text-secondary); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:0.07em; padding:10px 8px; text-align:center; border:1px solid var(--color-border); }
 .timetable-grid thead th.time-col { width:80px; }
