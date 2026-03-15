@@ -41,10 +41,39 @@ $active_term_id   = $activeTermRow['term_id']   ?? 0;
 $active_term_name = $activeTermRow ? $activeTermRow['academic_year'] . ' - ' . $activeTermRow['semester'] : 'No Active Term';
 
 // ================================================================
-// FILTER BY SECTION
+// DEPARTMENT & YEAR FILTER
 // ================================================================
-$filter_section = $_GET['section_id'] ?? '';
-$where_section  = $filter_section ? "AND s.section_id = " . intval($filter_section) : "";
+$departmentToPrograms = [
+    'CCS'  => ['BSIT'],
+    'CHTM' => ['BSTM'],
+    'CBA'  => ['BSBA'],
+    'CCJE' => ['BSCRIM'],
+    'COE'  => ['BSCE'],
+];
+$departmentLabels = [
+    'CCS'  => 'College of Computer Studies (CCS)',
+    'CHTM' => 'College of Hospitality and Tourism Management (CHTM)',
+    'CBA'  => 'College of Business Administration (CBA)',
+    'CCJE' => 'College of Criminal Justice Education (CCJE)',
+    'COE'  => 'College of Engineering (COE)',
+];
+
+$filter_department = $_GET['department'] ?? '';
+$filter_year       = $_GET['year'] ?? '';
+
+$where_parts = ["s.term_id = $active_term_id"];
+
+if ($filter_department && isset($departmentToPrograms[$filter_department])) {
+    $programs = $departmentToPrograms[$filter_department];
+    $escaped  = array_map(fn($p) => "'" . $conn->real_escape_string($p) . "'", $programs);
+    $where_parts[] = "sec.program IN (" . implode(',', $escaped) . ")";
+}
+
+if ($filter_year && in_array($filter_year, ['1','2','3','4'])) {
+    $where_parts[] = "sec.section_name REGEXP ' {$filter_year}[0-9]'";
+}
+
+$where_sql = implode(' AND ', $where_parts);
 
 // ================================================================
 // FETCH SCHEDULES
@@ -60,7 +89,7 @@ $schedules_result = $conn->query("
     JOIN subjects sub ON s.subject_id = sub.subject_id
     JOIN faculty f ON s.faculty_id = f.faculty_id
     LEFT JOIN rooms r ON s.room_id = r.room_id
-    WHERE s.term_id = $active_term_id $where_section
+    WHERE $where_sql
     ORDER BY
         FIELD(s.day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'),
         s.start_time
@@ -70,7 +99,6 @@ $schedule_data = [];
 $all_schedules = [];
 if ($schedules_result && $schedules_result->num_rows > 0) {
     while ($row = $schedules_result->fetch_assoc()) {
-        // Fallback room name from room_assignments
         if (empty($row['room_name'])) {
             $rq = $conn->prepare("SELECT r.room_name FROM room_assignments ra JOIN rooms r ON ra.room_id=r.room_id WHERE ra.section_id=? LIMIT 1");
             $rq->bind_param("i", $row['section_id']);
@@ -118,21 +146,16 @@ $faculty_list = [];
 $fac_res = $conn->query("SELECT * FROM faculty WHERE status='Active' ORDER BY last_name");
 if ($fac_res) while ($f = $fac_res->fetch_assoc()) $faculty_list[] = $f;
 
-// Sections list (for filter)
-$sections_list = [];
-$sec_res = $conn->query("SELECT section_id, section_name FROM sections WHERE status='Active' ORDER BY section_name");
-if ($sec_res) while ($s = $sec_res->fetch_assoc()) $sections_list[] = $s;
-
 $active_tab = $_GET['tab'] ?? 'grid';
 
-// Program → department mapping (same as admin)
-$programToDepartment = [
-    'BSIT'   => 'College of Computer Studies (CCS)',
-    'BSTM'   => 'College of Hospitality and Tourism Management (CHTM)',
-    'BSBA'   => 'College of Business Administration (CBA)',
-    'BSCRIM' => 'College of Criminal Justice Education (CCJE)',
-    'BSCE'   => 'College of Engineering (COE)',
-];
+function build_filter_qs($extra = []) {
+    global $filter_department, $filter_year;
+    $params = [];
+    if ($filter_department) $params['department'] = $filter_department;
+    if ($filter_year)       $params['year']       = $filter_year;
+    foreach ($extra as $k => $v) $params[$k] = $v;
+    return $params ? '?' . http_build_query($params) : '';
+}
 ?>
 
 <?php include '../includes/header.php'; ?>
@@ -145,29 +168,51 @@ $programToDepartment = [
             <h1>Class Timetable</h1>
             <p>Active Term: <strong><?= htmlspecialchars($active_term_name) ?></strong></p>
         </div>
-        <!-- REGISTRAR: no Add Schedule button -->
         <div class="registrar-access-badge">
             <i class="bi bi-pencil-square me-1"></i> Edit Access Only
         </div>
     </div>
 
-    <!-- FILTER BY SECTION -->
+    <!-- FILTER BY DEPARTMENT & YEAR -->
     <div class="content-card mb-4">
         <form method="GET" class="d-flex align-items-center gap-3 flex-wrap">
             <input type="hidden" name="tab" value="<?= htmlspecialchars($active_tab) ?>">
-            <label class="form-label mb-0" style="white-space:nowrap;">Filter by Section:</label>
-            <select name="section_id" class="form-select" style="max-width:220px;" onchange="this.form.submit()">
-                <option value="">— All Sections —</option>
-                <?php foreach ($sections_list as $s): ?>
-                    <option value="<?= $s['section_id'] ?>" <?= $filter_section == $s['section_id'] ? 'selected' : '' ?>>
-                        <?= htmlspecialchars($s['section_name']) ?>
+
+            <label class="form-label mb-0" style="white-space:nowrap;">
+                <i class="bi bi-building me-1"></i>Department:
+            </label>
+            <select name="department" class="form-select" style="max-width:280px;" onchange="this.form.submit()">
+                <option value="">— All Departments —</option>
+                <?php foreach ($departmentLabels as $code => $label): ?>
+                    <option value="<?= $code ?>" <?= $filter_department === $code ? 'selected' : '' ?>>
+                        <?= htmlspecialchars($label) ?>
                     </option>
                 <?php endforeach; ?>
             </select>
-            <?php if ($filter_section): ?>
-                <a href="schedules.php?tab=<?= $active_tab ?>" class="btn-secondary-custom">
-                    <i class="bi bi-x-lg me-1"></i>Clear Filter
+
+            <label class="form-label mb-0" style="white-space:nowrap;">
+                <i class="bi bi-mortarboard me-1"></i>Year Level:
+            </label>
+            <select name="year" class="form-select" style="max-width:160px;" onchange="this.form.submit()">
+                <option value="">— All Years —</option>
+                <option value="1" <?= $filter_year === '1' ? 'selected' : '' ?>>1st Year</option>
+                <option value="2" <?= $filter_year === '2' ? 'selected' : '' ?>>2nd Year</option>
+                <option value="3" <?= $filter_year === '3' ? 'selected' : '' ?>>3rd Year</option>
+                <option value="4" <?= $filter_year === '4' ? 'selected' : '' ?>>4th Year</option>
+            </select>
+
+            <?php if ($filter_department || $filter_year): ?>
+                <a href="schedules.php?tab=<?= htmlspecialchars($active_tab) ?>" class="btn-secondary-custom">
+                    <i class="bi bi-x-lg me-1"></i>Clear Filters
                 </a>
+                <span class="filter-active-badge">
+                    <?php
+                    $badge_parts = [];
+                    if ($filter_department) $badge_parts[] = $departmentLabels[$filter_department] ?? $filter_department;
+                    if ($filter_year)       $badge_parts[] = $filter_year . ($filter_year==1?'st':($filter_year==2?'nd':($filter_year==3?'rd':'th'))) . ' Year';
+                    echo htmlspecialchars(implode(' · ', $badge_parts));
+                    ?>
+                </span>
             <?php endif; ?>
         </form>
     </div>
@@ -175,11 +220,11 @@ $programToDepartment = [
     <!-- TABS -->
     <div class="content-card mb-4">
         <div class="schedule-tabs mb-0">
-            <a href="?tab=grid<?= $filter_section ? '&section_id='.$filter_section : '' ?>"
+            <a href="schedules.php<?= build_filter_qs(['tab' => 'grid']) ?>"
                class="schedule-tab <?= $active_tab === 'grid' ? 'active' : '' ?>">
                 <i class="bi bi-grid-3x3-gap-fill me-1"></i> Timetable Grid
             </a>
-            <a href="?tab=list<?= $filter_section ? '&section_id='.$filter_section : '' ?>"
+            <a href="schedules.php<?= build_filter_qs(['tab' => 'list']) ?>"
                class="schedule-tab <?= $active_tab === 'list' ? 'active' : '' ?>">
                 <i class="bi bi-list-ul me-1"></i> Schedule List
             </a>
@@ -193,11 +238,16 @@ $programToDepartment = [
             <h5 style="color:var(--text-primary); font-weight:700; margin:0;">
                 <i class="bi bi-grid-3x3-gap-fill me-2" style="color:var(--accent);"></i>
                 Timetable Grid
-                <?php if ($filter_section):
-                    $sn = $conn->query("SELECT section_name FROM sections WHERE section_id=".intval($filter_section));
-                    $sname = $sn ? $sn->fetch_assoc()['section_name'] : '';
-                ?>
-                    <span style="color:var(--accent); font-size:14px;"> — <?= htmlspecialchars($sname) ?></span>
+                <?php if ($filter_department || $filter_year): ?>
+                    <span style="color:var(--accent); font-size:13px; font-weight:500;">
+                        — 
+                        <?php
+                        $parts = [];
+                        if ($filter_department) $parts[] = $departmentLabels[$filter_department] ?? $filter_department;
+                        if ($filter_year)       $parts[] = $filter_year . ($filter_year==1?'st':($filter_year==2?'nd':($filter_year==3?'rd':'th'))) . ' Year';
+                        echo htmlspecialchars(implode(', ', $parts));
+                        ?>
+                    </span>
                 <?php endif; ?>
             </h5>
         </div>
@@ -240,20 +290,24 @@ $programToDepartment = [
     <div class="content-card">
         <h5 class="mb-3" style="color:var(--text-primary); font-weight:700;">
             <i class="bi bi-list-ul me-2" style="color:var(--accent);"></i>Schedule List
+            <?php if ($filter_department || $filter_year): ?>
+                <span style="color:var(--accent); font-size:13px; font-weight:500;">
+                    — 
+                    <?php
+                    $parts = [];
+                    if ($filter_department) $parts[] = $departmentLabels[$filter_department] ?? $filter_department;
+                    if ($filter_year)       $parts[] = $filter_year . ($filter_year==1?'st':($filter_year==2?'nd':($filter_year==3?'rd':'th'))) . ' Year';
+                    echo htmlspecialchars(implode(', ', $parts));
+                    ?>
+                </span>
+            <?php endif; ?>
         </h5>
         <div class="table-responsive">
             <table class="custom-table">
                 <thead>
                     <tr>
-                        <th>Section</th>
-                        <th>Subject</th>
-                        <th>Faculty</th>
-                        <th>Room</th>
-                        <th>Day</th>
-                        <th>Start</th>
-                        <th>End</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th>Section</th><th>Subject</th><th>Faculty</th><th>Room</th>
+                        <th>Day</th><th>Start</th><th>End</th><th>Status</th><th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -275,12 +329,10 @@ $programToDepartment = [
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <!-- EDIT ONLY — no delete button -->
                                 <button class="btn-icon" title="Edit"
                                     onclick='openEditSchedule(<?= json_encode($row) ?>)'>
                                     <i class="bi bi-pencil-square"></i>
                                 </button>
-                                <!-- DELETE is disabled for registrar -->
                                 <button class="btn-icon text-muted" title="Delete (Admin Only)" disabled
                                     style="opacity:0.35; cursor:not-allowed;">
                                     <i class="bi bi-trash"></i>
@@ -392,8 +444,8 @@ const programToDepartment = {
     'BSCE':   'College of Engineering (COE)'
 };
 const programToShortDept = {
-    'BSIT':   'CCS Dept', 'BSTM':   'CHTM Dept',
-    'BSBA':   'CBA Dept', 'BSCRIM': 'CCJE Dept', 'BSCE': 'COE Dept'
+    'BSIT': 'CCS Dept', 'BSTM': 'CHTM Dept',
+    'BSBA': 'CBA Dept', 'BSCRIM': 'CCJE Dept', 'BSCE': 'COE Dept'
 };
 
 function populateFacultyDropdown(selectEl, hintEl, program, selectedId) {
@@ -422,14 +474,13 @@ function populateFacultyDropdown(selectEl, hintEl, program, selectedId) {
 }
 
 function openEditSchedule(data) {
-    document.getElementById('edit_schedule_id').value   = data.schedule_id;
+    document.getElementById('edit_schedule_id').value    = data.schedule_id;
     document.getElementById('edit_section_display').value = data.section_name + ' / ' + (data.room_name ?? '(No Room)');
     document.getElementById('edit_subject_display').value = data.subject_name;
-    document.getElementById('edit_status').value        = data.status;
-    document.getElementById('edit_day_of_week').value   = data.day_of_week;
-    document.getElementById('edit_start_time').value    = data.start_time;
-    document.getElementById('edit_end_time').value      = data.end_time;
-
+    document.getElementById('edit_status').value         = data.status;
+    document.getElementById('edit_day_of_week').value    = data.day_of_week;
+    document.getElementById('edit_start_time').value     = data.start_time;
+    document.getElementById('edit_end_time').value       = data.end_time;
     populateFacultyDropdown(
         document.getElementById('edit_faculty_id'),
         document.getElementById('edit_faculty_hint'),
@@ -439,11 +490,9 @@ function openEditSchedule(data) {
     new bootstrap.Modal(document.getElementById('editScheduleModal')).show();
 }
 
-// Disable earlier end times
-['edit'].forEach(p => {
-    const s = document.getElementById(p + '_start_time');
-    const e = document.getElementById(p + '_end_time');
-    if (!s || !e) return;
+const s = document.getElementById('edit_start_time');
+const e = document.getElementById('edit_end_time');
+if (s && e) {
     s.addEventListener('change', function () {
         for (let opt of e.options) {
             if (!opt.value) continue;
@@ -451,7 +500,7 @@ function openEditSchedule(data) {
         }
         if (e.value && e.value <= this.value) e.value = '';
     });
-});
+}
 </script>
 
 <style>
@@ -459,6 +508,11 @@ function openEditSchedule(data) {
     background: rgba(79,163,255,0.1); border: 1px solid rgba(79,163,255,0.25);
     color: var(--accent); padding: 7px 14px; border-radius: 8px;
     font-size: 12px; font-weight: 700;
+}
+.filter-active-badge {
+    background: rgba(79,163,255,0.12); border: 1px solid rgba(79,163,255,0.3);
+    color: var(--accent); padding: 5px 12px; border-radius: 20px;
+    font-size: 12px; font-weight: 600;
 }
 .timetable-grid { width:100%; border-collapse:collapse; font-size:12px; min-width:900px; }
 .timetable-grid thead th { background:var(--color-surface2); color:var(--text-secondary); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:0.07em; padding:10px 8px; text-align:center; border:1px solid var(--color-border); }
