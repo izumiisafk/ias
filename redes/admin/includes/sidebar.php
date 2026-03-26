@@ -107,6 +107,47 @@ require_once __DIR__ . '/conflict_count.php';
     if (icon && localStorage.getItem('classsync_theme') === 'light') {
         icon.className = 'theme-icon bi bi-moon-fill';
     }
+
+    // --- SUPABASE REALTIME CONFLICT UPDATES ---
+    if (window.supabaseClient) {
+        console.log('📡 Subscribing to Conflict Realtime...');
+        
+        const updateBadgeUI = async () => {
+            const { count, error } = await window.supabaseClient
+                .from('conflicts')
+                .select('*', { count: 'exact', head: true })
+                .eq('status', 'Unresolved');
+
+            if (!error) {
+                const navItem = document.querySelector('a[href="conflicts.php"]');
+                let badge = navItem.querySelector('.conflict-nav-badge');
+                
+                if (count > 0) {
+                    if (!badge) {
+                        badge = document.createElement('span');
+                        badge.className = 'conflict-nav-badge';
+                        navItem.appendChild(badge);
+                    }
+                    badge.textContent = count <= 99 ? count : '99+';
+                    badge.title = `${count} unresolved conflict${count > 1 ? 's' : ''}`;
+                } else if (badge) {
+                    badge.remove();
+                }
+            }
+        };
+
+        // Subscribe to changes on the 'conflicts' table
+        window.supabaseClient
+            .channel('public:conflicts')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'conflicts' }, (payload) => {
+                console.log('🔔 Conflict change detected:', payload);
+                updateBadgeUI();
+            })
+            .subscribe();
+            
+        // Initial sync
+        updateBadgeUI();
+    }
 })();
 
 function confirmLogout() {

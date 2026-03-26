@@ -560,7 +560,7 @@ $is_conflict = (isset($page_title) && stripos($page_title, 'Conflict') !== false
     };
 
     poll();                          // instant on page load
-    setInterval(poll, POLL_MS);      // background refresh
+    // setInterval(poll, POLL_MS);      // background refresh (DISABLED: Using Supabase Realtime instead)
   }
 
   document.readyState === 'loading'
