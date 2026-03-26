@@ -17,7 +17,7 @@ try {
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_PERSISTENT         => true, // Faster reconnects
-        PDO::ATTR_TIMEOUT            => 5,    // Connection timeout
+        PDO::ATTR_TIMEOUT            => 2,    // Connection timeout (reduced for speed)
     ];
     $conn = new PDO($dsn, $username, $password, $options);
 } catch (PDOException $e) {

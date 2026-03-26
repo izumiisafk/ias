@@ -13,9 +13,8 @@ $hardcoded = [
     'admin' => ['password' => 'admin123', 'role' => 'admin', 'full_name' => 'System Administrator'],
 ];
 
-require_once 'config/db.php';
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once 'config/db.php';
     $username = trim($_POST['username'] ?? '');
     $password = trim($_POST['password'] ?? '');
     $logged   = false;
