@@ -15,16 +15,16 @@ if (isset($_POST['edit_section'])) {
     $adviser_id     = !empty($_POST['adviser_id']) ? intval($_POST['adviser_id']) : NULL;
     $status         = $_POST['status'];
 
-    // Registrar can only update student count, adviser, and status
-    $stmt = $conn->prepare("
-        UPDATE sections SET total_students=?, adviser_id=?, status=?
-        WHERE section_id=?
-    ");
-    $stmt->bind_param("iisi", $total_students, $adviser_id, $status, $section_id);
-    if ($stmt->execute()) {
-        header("Location: sections.php?success=updated");
-        exit();
-    } else {
+    try {
+        $stmt = $conn->prepare("
+            UPDATE sections SET total_students=?, adviser_id=?, status=?
+            WHERE section_id=?
+        ");
+        if ($stmt->execute([$total_students, $adviser_id, $status, $section_id])) {
+            header("Location: sections.php?success=updated");
+            exit();
+        }
+    } catch (PDOException $e) {
         header("Location: sections.php?error=update_fail");
         exit();
     }
@@ -36,9 +36,7 @@ if (isset($_GET['error']))  $error_msg = 'Failed to update section. Please try a
 // ================================================================
 // FETCH FACULTY (for adviser dropdown, filtered by program JS-side)
 // ================================================================
-$all_faculty_js = [];
-$fac_res = $conn->query("SELECT faculty_id, first_name, last_name, department FROM faculty WHERE status='Active' ORDER BY last_name, first_name");
-if ($fac_res) while ($f = $fac_res->fetch_assoc()) $all_faculty_js[] = $f;
+$all_faculty_js = $conn->query("SELECT faculty_id, first_name, last_name, department FROM faculty WHERE status='Active' ORDER BY last_name, first_name")->fetchAll();
 
 $programNames = [
     'BSIT'   => 'BS Information Technology',
@@ -101,7 +99,7 @@ $programNames = [
                 </thead>
                 <tbody id="sectionTbody">
                     <?php
-                    $result = $conn->query("
+                    $sections_all = $conn->query("
                         SELECT s.*,
                             CONCAT(f.first_name,' ',f.last_name) AS adviser_name,
                             at.semester AS term_semester,
@@ -110,9 +108,9 @@ $programNames = [
                         LEFT JOIN faculty f ON s.adviser_id = f.faculty_id
                         LEFT JOIN academic_terms at ON s.term_id = at.term_id
                         ORDER BY s.section_id DESC
-                    ");
-                    if ($result && $result->num_rows > 0):
-                        while ($row = $result->fetch_assoc()):
+                    ")->fetchAll();
+                    if (!empty($sections_all)):
+                        foreach ($sections_all as $row):
                     ?>
                     <tr>
                         <td><strong><?= htmlspecialchars($row['section_name']) ?></strong></td>
@@ -151,7 +149,7 @@ $programNames = [
                             </button>
                         </td>
                     </tr>
-                    <?php endwhile; else: ?>
+                    <?php endforeach; else: ?>
                     <tr><td colspan="8" class="text-center py-3">No sections found.</td></tr>
                     <?php endif; ?>
                 </tbody>

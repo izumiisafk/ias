@@ -30,17 +30,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$logged) {
         $stmt = $conn->prepare("SELECT * FROM system_accounts WHERE email=? AND status='Active' LIMIT 1");
         if ($stmt) {
-            $stmt->bind_param("s", $username);
-            $stmt->execute();
-            $result = $stmt->get_result();
-            if ($result && $row = $result->fetch_assoc()) {
-           if (password_verify($password, $row['password'])) {  // ✅ correct
-    $_SESSION['logged_in'] = true;
-    $_SESSION['role']      = $row['role'];
-    $_SESSION['username']  = $row['username'];
-    $_SESSION['full_name'] = $row['full_name'];
-    $logged = true;
-}
+            $stmt->execute([$username]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
+                if (password_verify($password, $row['password'])) {  // ✅ correct
+                    $_SESSION['logged_in'] = true;
+                    $_SESSION['role']      = $row['role'];
+                    $_SESSION['username']  = $row['username'];
+                    $_SESSION['full_name'] = $row['full_name'];
+                    $logged = true;
+                }
             }
         }
     }

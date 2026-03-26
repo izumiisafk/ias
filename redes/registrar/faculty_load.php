@@ -7,7 +7,7 @@ $page_title = 'Faculty Load - Class Scheduling System';
 // ================================================================
 
 // Active Term
-$activeTerm = $conn->query("SELECT term_id, academic_year, semester FROM academic_terms WHERE is_active=1 LIMIT 1")->fetch_assoc();
+$activeTerm = $conn->query("SELECT term_id, academic_year, semester FROM academic_terms WHERE is_active=TRUE LIMIT 1")->fetch();
 $active_term_id = $activeTerm['term_id'] ?? 0;
 $term_label     = $activeTerm ? $activeTerm['semester'] . ' (' . $activeTerm['academic_year'] . ')' : 'No Active Term';
 
@@ -27,33 +27,46 @@ $stats = $conn->query("
         END) AS unassigned_faculty
     FROM faculty f
     LEFT JOIN (
-        SELECT faculty_id, SUM(TIMESTAMPDIFF(MINUTE, start_time, end_time) / 60) AS total_hours
+        SELECT faculty_id, SUM(EXTRACT(EPOCH FROM (end_time - start_time)::interval) / 3600) AS total_hours
         FROM schedules
         WHERE status = 'Active' AND term_id = $active_term_id
         GROUP BY faculty_id
     ) wh ON f.faculty_id = wh.faculty_id
-")->fetch_assoc();
+")->fetch();
 
 // Faculty load data
-$dept_filter_sql = $filter_dept
-    ? "WHERE f.department = '" . $conn->real_escape_string($filter_dept) . "'"
-    : "";
-
 $faculty_rows = [];
-$result = $conn->query("
-    SELECT
-        f.faculty_id, f.faculty_code, f.first_name, f.last_name,
-        f.department, f.status, f.max_teaching_hours,
-        COUNT(s.schedule_id) AS total_schedules,
-        COALESCE(SUM(TIMESTAMPDIFF(MINUTE, s.start_time, s.end_time) / 60), 0) AS total_hours_assigned
-    FROM faculty f
-    LEFT JOIN schedules s ON f.faculty_id = s.faculty_id
-        AND s.status = 'Active' AND s.term_id = $active_term_id
-    $dept_filter_sql
-    GROUP BY f.faculty_id
-    ORDER BY f.department, f.last_name, f.first_name
-");
-if ($result) while ($row = $result->fetch_assoc()) $faculty_rows[] = $row;
+if ($filter_dept) {
+    $stmt = $conn->prepare("
+        SELECT
+            f.faculty_id, f.faculty_code, f.first_name, f.last_name,
+            f.department, f.status, f.max_teaching_hours,
+            COUNT(s.schedule_id) AS total_schedules,
+            COALESCE(SUM(EXTRACT(EPOCH FROM (s.end_time - s.start_time)::interval) / 3600), 0) AS total_hours_assigned
+        FROM faculty f
+        LEFT JOIN schedules s ON f.faculty_id = s.faculty_id
+            AND s.status = 'Active' AND s.term_id = $active_term_id
+        WHERE f.department = ?
+        GROUP BY f.faculty_id, f.faculty_code, f.first_name, f.last_name, f.department, f.status, f.max_teaching_hours
+        ORDER BY f.department, f.last_name, f.first_name
+    ");
+    $stmt->execute([$filter_dept]);
+    $result = $stmt;
+} else {
+    $result = $conn->query("
+        SELECT
+            f.faculty_id, f.faculty_code, f.first_name, f.last_name,
+            f.department, f.status, f.max_teaching_hours,
+            COUNT(s.schedule_id) AS total_schedules,
+            COALESCE(SUM(EXTRACT(EPOCH FROM (s.end_time - s.start_time)::interval) / 3600), 0) AS total_hours_assigned
+        FROM faculty f
+        LEFT JOIN schedules s ON f.faculty_id = s.faculty_id
+            AND s.status = 'Active' AND s.term_id = $active_term_id
+        GROUP BY f.faculty_id, f.faculty_code, f.first_name, f.last_name, f.department, f.status, f.max_teaching_hours
+        ORDER BY f.department, f.last_name, f.first_name
+    ");
+}
+if ($result) while ($row = $result->fetch()) $faculty_rows[] = $row;
 
 // Schedule data for modal
 $sched_map = [];
@@ -64,9 +77,17 @@ $all_scheds = $conn->query("
     JOIN subjects sub ON s.subject_id = sub.subject_id
     JOIN sections sec ON s.section_id = sec.section_id
     WHERE s.status = 'Active' AND s.term_id = $active_term_id
-    ORDER BY FIELD(s.day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'), s.start_time
+    ORDER BY 
+        CASE s.day_of_week 
+            WHEN 'Monday' THEN 1 
+            WHEN 'Tuesday' THEN 2 
+            WHEN 'Wednesday' THEN 3 
+            WHEN 'Thursday' THEN 4 
+            WHEN 'Friday' THEN 5 
+            WHEN 'Saturday' THEN 6 
+        END, s.start_time
 ");
-if ($all_scheds) while ($sr = $all_scheds->fetch_assoc()) $sched_map[$sr['faculty_id']][] = $sr;
+if ($all_scheds) while ($sr = $all_scheds->fetch()) $sched_map[$sr['faculty_id']][] = $sr;
 ?>
 
 <?php include '../includes/header.php'; ?>

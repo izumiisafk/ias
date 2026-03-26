@@ -15,7 +15,7 @@ if (!empty($_GET['rt_poll'])) {
     header('Cache-Control: no-store, no-cache, must-revalidate');
 
     $tid = 0;
-    $r = $conn->query("SELECT term_id FROM academic_terms WHERE is_active=1 LIMIT 1")->fetch_assoc();
+    $r = $conn->query("SELECT term_id FROM academic_terms WHERE is_active=TRUE LIMIT 1")->fetch();
     if ($r) $tid = intval($r['term_id']);
 
     // ================================================================
@@ -48,7 +48,7 @@ if (!empty($_GET['rt_poll'])) {
         WHERE s1.term_id=$tid AND s2.term_id=$tid
           AND s1.status='Active' AND s2.status='Active'
     ");
-    if ($fq) while ($fc = $fq->fetch_assoc()) {
+    if ($fq) while ($fc = $fq->fetch()) {
         $lo = min($fc['sid1'],$fc['sid2']); $hi = max($fc['sid1'],$fc['sid2']);
         $key = "{$lo}_{$hi}_Faculty";
         $desc = "Faculty conflict: {$fc['faculty_name']} is double-booked on {$fc['day_of_week']}"
@@ -87,7 +87,7 @@ if (!empty($_GET['rt_poll'])) {
           AND COALESCE(s2.room_id,ra2.room_id) IS NOT NULL
           AND COALESCE(s1.room_id,ra1.room_id) = COALESCE(s2.room_id,ra2.room_id)
     ");
-    if ($rq) while ($rc = $rq->fetch_assoc()) {
+    if ($rq) while ($rc = $rq->fetch()) {
         $lo = min($rc['sid1'],$rc['sid2']); $hi = max($rc['sid1'],$rc['sid2']);
         $key = "{$lo}_{$hi}_Room";
         $s1l = $rc['sec1_name'].($rc['prog1']!==$rc['prog2'] ? " ({$rc['prog1']})" : '');
@@ -120,7 +120,7 @@ if (!empty($_GET['rt_poll'])) {
         WHERE s1.term_id=$tid AND s2.term_id=$tid
           AND s1.status='Active' AND s2.status='Active'
     ");
-    if ($sq) while ($sc = $sq->fetch_assoc()) {
+    if ($sq) while ($sc = $sq->fetch()) {
         $lo = min($sc['sid1'],$sc['sid2']); $hi = max($sc['sid1'],$sc['sid2']);
         $key = "{$lo}_{$hi}_Section";
         $desc = "Section conflict: {$sc['section_name']} has two overlapping classes on {$sc['day_of_week']}"
@@ -132,7 +132,6 @@ if (!empty($_GET['rt_poll'])) {
     }
 
     // ── Load existing Unresolved from DB ──
-    $existing = [];
     $ex = $conn->query("
         SELECT conflict_id,
                LEAST(schedule_id_1,schedule_id_2)    AS sid_lo,
@@ -140,15 +139,14 @@ if (!empty($_GET['rt_poll'])) {
                conflict_type
         FROM conflicts WHERE status='Unresolved'
     ");
-    if ($ex) while ($e = $ex->fetch_assoc()) {
+    if ($ex) while ($e = $ex->fetch()) {
         $existing["{$e['sid_lo']}_{$e['sid_hi']}_{$e['conflict_type']}"] = (int)$e['conflict_id'];
     }
 
-    // ── Auto-resolve conflicts that no longer exist ──
     foreach ($existing as $key => $cid) {
         if (!isset($current_conflicts[$key])) {
             $u = $conn->prepare("UPDATE conflicts SET status='Resolved', resolved_at=NOW(), resolved_note='Auto-resolved: schedule was fixed in the timetable' WHERE conflict_id=?");
-            $u->bind_param("i",$cid); $u->execute();
+            $u->execute([$cid]);
         }
     }
 
@@ -156,7 +154,7 @@ if (!empty($_GET['rt_poll'])) {
     foreach ($current_conflicts as $key => $cf) {
         if (!isset($existing[$key])) {
             $i = $conn->prepare("INSERT INTO conflicts (conflict_type,schedule_id_1,schedule_id_2,description,status) VALUES (?,?,?,?,'Unresolved')");
-            $i->bind_param("siis",$cf['type'],$cf['lo'],$cf['hi'],$cf['desc']); $i->execute();
+            $i->execute([$cf['type'],$cf['lo'],$cf['hi'],$cf['desc']]);
         }
     }
 
@@ -170,7 +168,7 @@ if (!empty($_GET['rt_poll'])) {
         WHERE s1.term_id=$tid OR s2.term_id=$tid
         GROUP BY c.conflict_type, c.status
     ");
-    if ($cr) while ($r = $cr->fetch_assoc()) {
+    if ($cr) while ($r = $cr->fetch()) {
         if ($r['status'] === 'Unresolved') {
             $total += $r['cnt'];
             if ($r['conflict_type']==='Faculty') $faculty += $r['cnt'];
@@ -191,7 +189,7 @@ if (!empty($_GET['rt_poll'])) {
             ORDER BY CASE c.status WHEN 'Unresolved' THEN 0 ELSE 1 END, c.detected_at DESC
             LIMIT 200
         ");
-        if ($rr) while ($r = $rr->fetch_assoc()) {
+        if ($rr) while ($r = $rr->fetch()) {
             $rows[] = [
                 'conflict_id'   => (int)$r['conflict_id'],
                 'conflict_type' => $r['conflict_type'],
@@ -222,7 +220,7 @@ if (!empty($_GET['rt_poll'])) {
 if (!isset($unresolved_conflict_count)) {
     $unresolved_conflict_count = 0;
     if (isset($conn)) {
-        $atRow = $conn->query("SELECT term_id FROM academic_terms WHERE is_active=1 LIMIT 1")->fetch_assoc();
+        $atRow = $conn->query("SELECT term_id FROM academic_terms WHERE is_active=TRUE LIMIT 1")->fetch();
         if ($atRow) {
             $tid = intval($atRow['term_id']);
             $cr  = $conn->query("
@@ -233,7 +231,7 @@ if (!isset($unresolved_conflict_count)) {
                 WHERE c.status = 'Unresolved'
                   AND (s1.term_id = $tid OR s2.term_id = $tid)
             ");
-            if ($cr) $unresolved_conflict_count = (int)($cr->fetch_assoc()['cnt'] ?? 0);
+            if ($cr) $unresolved_conflict_count = (int)($cr->fetchColumn() ?? 0);
         }
     }
 }

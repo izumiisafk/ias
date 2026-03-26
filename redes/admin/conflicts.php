@@ -6,7 +6,7 @@ $page_title = 'Conflicts - Class Scheduling System';
 // ================================================================
 // GET ACTIVE TERM
 // ================================================================
-$activeTermRow = $conn->query("SELECT term_id, academic_year, semester FROM academic_terms WHERE is_active=1 LIMIT 1")->fetch_assoc();
+$activeTermRow = $conn->query("SELECT term_id, academic_year, semester FROM academic_terms WHERE is_active=TRUE LIMIT 1")->fetch();
 $active_term_id   = $activeTermRow['term_id'] ?? 0;
 $active_term_name = $activeTermRow ? $activeTermRow['semester'] . ' (' . $activeTermRow['academic_year'] . ')' : 'No Active Term';
 
@@ -18,10 +18,9 @@ $active_term_name = $activeTermRow ? $activeTermRow['semester'] . ' (' . $active
 // ================================================================
 $conn->query("
     UPDATE schedules s
-    JOIN room_assignments ra ON ra.section_id = s.section_id
-    SET s.room_id = ra.room_id
-    WHERE s.room_id IS NULL
-      AND ra.room_id IS NOT NULL
+    SET room_id = ra.room_id
+    FROM room_assignments ra 
+    WHERE ra.section_id = s.section_id AND s.room_id IS NULL AND ra.room_id IS NOT NULL
 ");
 
 // ================================================================
@@ -63,7 +62,7 @@ $faculty_detect = $conn->query("
       AND s2.status  = 'Active'
 ");
 if ($faculty_detect) {
-    while ($fc = $faculty_detect->fetch_assoc()) {
+    while ($fc = $faculty_detect->fetch()) {
         $key  = $fc['sid1'] . '_' . $fc['sid2'] . '_Faculty';
         $desc = "Faculty conflict: " . $fc['faculty_name'] . " is double-booked on " . $fc['day_of_week'] .
                 " — teaching '" . $fc['sub1_name'] . "' (" . $fc['sec1_name'] . ") " .
@@ -107,7 +106,7 @@ $room_detect = $conn->query("
       AND COALESCE(s1.room_id, ra1.room_id) = COALESCE(s2.room_id, ra2.room_id)
 ");
 if ($room_detect) {
-    while ($rc = $room_detect->fetch_assoc()) {
+    while ($rc = $room_detect->fetch()) {
         $key  = $rc['sid1'] . '_' . $rc['sid2'] . '_Room';
         // Show program labels when sections are from different programs
         $sec1_label = $rc['sec1_name'] . ($rc['prog1'] !== $rc['prog2'] ? ' (' . $rc['prog1'] . ')' : '');
@@ -144,7 +143,7 @@ $section_detect = $conn->query("
       AND s2.status  = 'Active'
 ");
 if ($section_detect) {
-    while ($sc = $section_detect->fetch_assoc()) {
+    while ($sc = $section_detect->fetch()) {
         $key  = $sc['sid1'] . '_' . $sc['sid2'] . '_Section';
         $desc = "Section conflict: " . $sc['section_name'] . " has two overlapping classes on " . $sc['day_of_week'] .
                 " — '" . $sc['sub1_name'] . "' " .
@@ -164,13 +163,17 @@ if ($section_detect) {
 // First: clean up any duplicate unresolved entries for the same pair+type
 // (keeps only the most recent one per pair)
 $conn->query("
-    DELETE c1 FROM conflicts c1
-    INNER JOIN conflicts c2
-        ON LEAST(c1.schedule_id_1, c1.schedule_id_2) = LEAST(c2.schedule_id_1, c2.schedule_id_2)
-        AND GREATEST(c1.schedule_id_1, c1.schedule_id_2) = GREATEST(c2.schedule_id_1, c2.schedule_id_2)
-        AND c1.conflict_type = c2.conflict_type
-        AND c1.conflict_id < c2.conflict_id
-    WHERE c1.status = 'Unresolved' AND c2.status = 'Unresolved'
+    DELETE FROM conflicts
+    WHERE conflict_id IN (
+        SELECT c1.conflict_id
+        FROM conflicts c1
+        INNER JOIN conflicts c2
+            ON LEAST(c1.schedule_id_1, c1.schedule_id_2) = LEAST(c2.schedule_id_1, c2.schedule_id_2)
+            AND GREATEST(c1.schedule_id_1, c1.schedule_id_2) = GREATEST(c2.schedule_id_1, c2.schedule_id_2)
+            AND c1.conflict_type = c2.conflict_type
+            AND c1.conflict_id < c2.conflict_id
+        WHERE c1.status = 'Unresolved' AND c2.status = 'Unresolved'
+    )
 ");
 $existing_unresolved = []; // normalized_key => conflict_id
 $ex_res = $conn->query("
@@ -182,7 +185,7 @@ $ex_res = $conn->query("
     WHERE status = 'Unresolved'
 ");
 if ($ex_res) {
-    while ($ex = $ex_res->fetch_assoc()) {
+    while ($ex = $ex_res->fetch()) {
         $key = $ex['sid_lo'] . '_' . $ex['sid_hi'] . '_' . $ex['conflict_type'];
         $existing_unresolved[$key] = $ex['conflict_id'];
     }
@@ -212,8 +215,7 @@ foreach ($existing_unresolved as $key => $conflict_id) {
                 resolved_note = 'Auto-resolved: schedule was fixed in the timetable'
             WHERE conflict_id = ?
         ");
-        $upd->bind_param("i", $conflict_id);
-        $upd->execute();
+        $upd->execute([$conflict_id]);
     }
 }
 
@@ -225,8 +227,7 @@ foreach ($normalized_conflicts as $key => $cf) {
             INSERT INTO conflicts (conflict_type, schedule_id_1, schedule_id_2, description, status)
             VALUES (?, ?, ?, ?, 'Unresolved')
         ");
-        $ins->bind_param("siis", $cf['type'], $lo, $hi, $cf['desc']);
-        $ins->execute();
+        $ins->execute([$cf['type'], $lo, $hi, $cf['desc']]);
     }
 }
 
@@ -242,8 +243,7 @@ if (isset($_POST['resolve_conflict'])) {
             resolved_note = 'Manually marked as resolved by admin'
         WHERE conflict_id = ?
     ");
-    $upd->bind_param("i", $conflict_id);
-    $upd->execute();
+    $upd->execute([$conflict_id]);
     header("Location: conflicts.php");
     exit();
 }
@@ -268,7 +268,7 @@ $count_res = $conn->query("
     GROUP BY c.conflict_type, c.status
 ");
 if ($count_res) {
-    while ($cr = $count_res->fetch_assoc()) {
+    while ($cr = $count_res->fetch()) {
         if ($cr['status'] === 'Unresolved') {
             $total_conflicts += $cr['cnt'];
             if ($cr['conflict_type'] === 'Faculty')  $faculty_conflicts += $cr['cnt'];
@@ -291,7 +291,7 @@ $result = $conn->query("
       AND (s1.term_id = $active_term_id OR s2.term_id = $active_term_id)
     ORDER BY c.detected_at DESC
 ");
-if ($result) while ($row = $result->fetch_assoc()) $conflict_rows[] = $row;
+if ($result) while ($row = $result->fetch()) $conflict_rows[] = $row;
 ?>
 
 <?php include '../includes/header.php'; ?>

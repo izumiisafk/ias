@@ -1,12 +1,20 @@
 <?php
-$host     = 'localhost';
-$dbname   = 'ias_subsystem';
-$username = 'root';
-$password = '';
+require_once 'env_loader.php';
 
-$conn = new mysqli($host, $username, $password, $dbname);
+$host     = getenv('DB_HOST') ?: 'db.pnbrkfpqrigmsluzhbff.supabase.co';
+$port     = getenv('DB_PORT') ?: '5432';
+$dbname   = getenv('DB_NAME') ?: 'postgres';
+$username = getenv('DB_USER') ?: 'postgres';
+$password = getenv('DB_PASSWORD') ?: '';
 
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
+try {
+    $dsn = "pgsql:host=$host;port=$port;dbname=$dbname;sslmode=require";
+    $conn = new PDO($dsn, $username, $password);
+    $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    
+    // Add compatibility for fetch_assoc() style
+    // (We will still need to refactor function calls)
+} catch (PDOException $e) {
+    die("Connection failed: " . $e->getMessage());
 }
 ?>

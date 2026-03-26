@@ -17,8 +17,7 @@ if (isset($_POST['assign_room'])) {
     $section_id = $_POST['section_id'];
     $room_id    = $_POST['room_id'];
     $stmt = $conn->prepare("INSERT INTO room_assignments (section_id, room_id) VALUES (?, ?)");
-    $stmt->bind_param("ii", $section_id, $room_id);
-    if ($stmt->execute()) {
+    if ($stmt->execute([$section_id, $room_id])) {
         header("Location: rooms.php?success=assigned");
         exit();
     }
@@ -31,8 +30,7 @@ if (isset($_POST['edit_assignment'])) {
     $assignment_id = intval($_POST['assignment_id']);
     $room_id       = intval($_POST['room_id']);
     $stmt = $conn->prepare("UPDATE room_assignments SET room_id=? WHERE assignment_id=?");
-    $stmt->bind_param("ii", $room_id, $assignment_id);
-    if ($stmt->execute()) {
+    if ($stmt->execute([$room_id, $assignment_id])) {
         header("Location: rooms.php?success=updated&tab=assigned");
         exit();
     }
@@ -44,8 +42,7 @@ if (isset($_POST['edit_assignment'])) {
 if (isset($_POST['delete_assignment'])) {
     $assignment_id = intval($_POST['assignment_id']);
     $stmt = $conn->prepare("DELETE FROM room_assignments WHERE assignment_id=?");
-    $stmt->bind_param("i", $assignment_id);
-    if ($stmt->execute()) {
+    if ($stmt->execute([$assignment_id])) {
         header("Location: rooms.php?success=deleted&tab=assigned");
         exit();
     }
@@ -56,19 +53,19 @@ if (isset($_POST['delete_assignment'])) {
 // ================================================================
 $total_rooms = 0;
 $result = $conn->query("SELECT COUNT(*) as total FROM rooms");
-if ($result && $row = $result->fetch_assoc()) $total_rooms = $row['total'];
+if ($result && $row = $result->fetch()) $total_rooms = $row['total'];
 
 $available_rooms = 0;
 $result = $conn->query("SELECT COUNT(*) as total FROM rooms WHERE status='Available'");
-if ($result && $row = $result->fetch_assoc()) $available_rooms = $row['total'];
+if ($result && $row = $result->fetch()) $available_rooms = $row['total'];
 
 $labs = 0;
 $result = $conn->query("SELECT COUNT(*) as total FROM rooms WHERE room_type='Laboratory'");
-if ($result && $row = $result->fetch_assoc()) $labs = $row['total'];
+if ($result && $row = $result->fetch()) $labs = $row['total'];
 
 $lectures = 0;
 $result = $conn->query("SELECT COUNT(*) as total FROM rooms WHERE room_type='Lecture'");
-if ($result && $row = $result->fetch_assoc()) $lectures = $row['total'];
+if ($result && $row = $result->fetch()) $lectures = $row['total'];
 
 // Occupied NOW
 $occupied_now = 0;
@@ -77,18 +74,18 @@ $occ_result   = $conn->query("
     FROM schedules s
     JOIN academic_terms t ON s.term_id = t.term_id
     WHERE s.status      = 'Active'
-      AND t.is_active   = 1
+      AND t.is_active   = TRUE
       AND s.day_of_week = '$pht_day'
       AND s.start_time <= '$pht_time'
       AND s.end_time   >  '$pht_time'
       AND s.room_id IS NOT NULL
 ");
-if ($occ_result && $row = $occ_result->fetch_assoc()) $occupied_now = $row['total'];
+if ($occ_result && $row = $occ_result->fetch()) $occupied_now = $row['total'];
 
 // ================================================================
 // FETCH ALL ROOMS WITH LIVE STATUS
 // ================================================================
-$rooms = $conn->query("
+$rooms_all = $conn->query("
     SELECT r.*,
         CASE
             WHEN EXISTS (
@@ -96,7 +93,7 @@ $rooms = $conn->query("
                 JOIN academic_terms t ON s.term_id = t.term_id
                 WHERE s.room_id     = r.room_id
                   AND s.status      = 'Active'
-                  AND t.is_active   = 1
+                  AND t.is_active   = TRUE
                   AND s.day_of_week = '$pht_day'
                   AND s.start_time <= '$pht_time'
                   AND s.end_time   >  '$pht_time'
@@ -105,12 +102,12 @@ $rooms = $conn->query("
         END AS live_status
     FROM rooms r
     ORDER BY r.building, r.floor, r.room_code
-");
+")->fetchAll();
 
 // ================================================================
 // FETCH SECTION ASSIGNMENTS
 // ================================================================
-$assigned_rooms = $conn->query("
+$assigned_rows_list = $conn->query("
     SELECT ra.assignment_id,
            s.section_name, s.section_id, s.program,
            r.room_id, r.room_code, r.room_name,
@@ -119,13 +116,13 @@ $assigned_rooms = $conn->query("
     JOIN sections s ON ra.section_id = s.section_id
     JOIN rooms    r ON ra.room_id    = r.room_id
     ORDER BY s.section_name
-");
-$assigned_count = $assigned_rooms ? $assigned_rooms->num_rows : 0;
+")->fetchAll();
+$assigned_count = count($assigned_rows_list);
 
 // ================================================================
 // FETCH OCCUPIED NOW
 // ================================================================
-$occupied_rows = $conn->query("
+$occupied_rows_list = $conn->query("
     SELECT r.room_id, r.room_code, r.room_name, r.building, r.floor, r.room_type,
            sec.section_name, sec.program,
            sub.subject_name, sub.subject_code,
@@ -138,14 +135,14 @@ $occupied_rows = $conn->query("
     JOIN faculty  f   ON s.faculty_id = f.faculty_id
     JOIN academic_terms t ON s.term_id = t.term_id
     WHERE s.status      = 'Active'
-      AND t.is_active   = 1
+      AND t.is_active   = TRUE
       AND s.day_of_week = '$pht_day'
       AND s.start_time <= '$pht_time'
       AND s.end_time   >  '$pht_time'
       AND s.room_id IS NOT NULL
     ORDER BY r.building, r.floor, r.room_code
-");
-$occupied_count = $occupied_rows ? $occupied_rows->num_rows : 0;
+")->fetchAll();
+$occupied_count = count($occupied_rows_list);
 
 // ================================================================
 // FETCH SECTION → ROOMS MAPPING for JS
@@ -158,7 +155,7 @@ $section_room_map_js = [];  // section_id (string key) => [room_id, ...]
 
 $ra_res = $conn->query("SELECT section_id, room_id FROM room_assignments");
 if ($ra_res) {
-    while ($r = $ra_res->fetch_assoc()) {
+    while ($r = $ra_res->fetch()) {
         $sid = intval($r['section_id']);
         $rid = intval($r['room_id']);
         if (!isset($section_room_map_js[$sid])) {
@@ -290,8 +287,8 @@ $programNames = [
                     </tr>
                 </thead>
                 <tbody id="roomTbody">
-                    <?php if ($rooms && $rooms->num_rows > 0):
-                        while ($room = $rooms->fetch_assoc()): ?>
+                    <?php if (!empty($rooms_all)):
+                        foreach ($rooms_all as $room): ?>
                     <tr>
                         <td><strong><?= htmlspecialchars($room['room_code']) ?></strong></td>
                         <td><?= htmlspecialchars($room['room_name']) ?></td>
@@ -321,7 +318,7 @@ $programNames = [
                             <?php endif; ?>
                         </td>
                     </tr>
-                    <?php endwhile; else: ?>
+                    <?php endforeach; else: ?>
                     <tr><td colspan="7" class="text-center py-3">No rooms found.</td></tr>
                     <?php endif; ?>
                 </tbody>
@@ -360,8 +357,8 @@ $programNames = [
                     </tr>
                 </thead>
                 <tbody>
-                    <?php if ($assigned_rooms && $assigned_rooms->num_rows > 0):
-                        while ($row = $assigned_rooms->fetch_assoc()): ?>
+                    <?php if (!empty($assigned_rows_list)):
+                        foreach ($assigned_rows_list as $row): ?>
                     <tr>
                         <td><strong><?= htmlspecialchars($row['section_name']) ?></strong></td>
                         <td style="font-size:12px;">
@@ -389,7 +386,7 @@ $programNames = [
                             </button>
                         </td>
                     </tr>
-                    <?php endwhile; else: ?>
+                    <?php endforeach; else: ?>
                     <tr><td colspan="8" class="text-center py-3">No room assignments found. Use "Assign Room" to add one.</td></tr>
                     <?php endif; ?>
                 </tbody>
@@ -445,7 +442,7 @@ $programNames = [
                     </tr>
                 </thead>
                 <tbody>
-                    <?php while ($row = $occupied_rows->fetch_assoc()):
+                    <?php foreach ($occupied_rows_list as $row):
                         $endTs    = strtotime(date('Y-m-d') . ' ' . $row['end_time']);
                         $nowTs    = strtotime(date('Y-m-d') . ' ' . $pht_time);
                         $diffMins = max(0, round(($endTs - $nowTs) / 60));
@@ -502,7 +499,7 @@ $programNames = [
                             </span>
                         </td>
                     </tr>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
@@ -558,7 +555,7 @@ $programNames = [
             <option value="">Select Section</option>
             <?php
             $sections = $conn->query("SELECT section_id, section_name, program FROM sections WHERE status='Active' ORDER BY section_name");
-            if ($sections) while ($sec = $sections->fetch_assoc()):
+            if ($sections) while ($sec = $sections->fetch()):
             ?>
             <option value="<?= $sec['section_id'] ?>"
                 data-program="<?= htmlspecialchars($sec['program']) ?>">
@@ -575,7 +572,7 @@ $programNames = [
             <option value="">Select a section first</option>
             <?php
             $available = $conn->query("SELECT room_id, room_code, room_name, room_type, allowed_program FROM rooms WHERE status='Available' ORDER BY room_code");
-            if ($available) while ($r = $available->fetch_assoc()):
+            if ($available) while ($r = $available->fetch()):
             ?>
             <option value="<?= $r['room_id'] ?>"
                 data-type="<?= $r['room_type'] ?>"
@@ -624,7 +621,7 @@ $programNames = [
             <option value="">Select Room</option>
             <?php
             $all_rooms = $conn->query("SELECT room_id, room_code, room_name, room_type, allowed_program FROM rooms WHERE status='Available' ORDER BY room_code");
-            if ($all_rooms) while ($r = $all_rooms->fetch_assoc()):
+            if ($all_rooms) while ($r = $all_rooms->fetch()):
             ?>
             <option value="<?= $r['room_id'] ?>"
                 data-type="<?= $r['room_type'] ?>"
