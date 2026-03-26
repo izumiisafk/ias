@@ -1,6 +1,15 @@
 <?php
 require_once 'includes/auth.php'; 
 require_once '../config/db.php';
+
+if (!$conn instanceof PDO) {
+    die("<div style='padding:20px; font-family:sans-serif; color:#ef4444; background:rgba(239,68,68,0.05); border:1px solid #ef4444; border-radius:8px; margin:20px;'>
+            <h3 style='margin-top:0;'>Database Connection Error</h3>
+            <p>Could not connect to the database. Please check your <strong>.env</strong> file and network connection.</p>
+            <p style='font-size:13px; color:#666;'>Error Details: " . htmlspecialchars($db_error ?: 'Unknown Error') . "</p>
+            <a href='../login.php' style='color:#3b82f6;'>&larr; Back to Login</a>
+         </div>");
+}
 $page_title = 'Conflicts - Class Scheduling System';
 
 // ================================================================

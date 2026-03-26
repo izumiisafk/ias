@@ -9,7 +9,7 @@
 
 // ── POLL ENDPOINT ────────────────────────────────────────────────
 if (!empty($_GET['rt_poll'])) {
-    if (!isset($conn)) require_once __DIR__ . '/../config/db.php';
+    if (!isset($conn)) require_once __DIR__ . '/../../config/db.php';
 
     header('Content-Type: application/json');
     header('Cache-Control: no-store, no-cache, must-revalidate');

@@ -6,13 +6,14 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
     exit();
 }
 
-require_once 'config/db.php';
+$error = '';
+$db_error = ''; 
 
 $hardcoded = [
     'admin' => ['password' => 'admin123', 'role' => 'admin', 'full_name' => 'System Administrator'],
 ];
 
-$error = '';
+require_once 'config/db.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
@@ -27,13 +28,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $logged = true;
     }
 
-    if (!$logged) {
-        $stmt = $conn->prepare("SELECT * FROM system_accounts WHERE email=? AND status='Active' LIMIT 1");
+    if (!$logged && empty($db_error)) {
+        // Search by both email OR username
+        $stmt = $conn->prepare("SELECT * FROM system_accounts WHERE (email=? OR username=?) AND status='Active' LIMIT 1");
         if ($stmt) {
-            $stmt->execute([$username]);
+            $stmt->execute([$username, $username]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($row) {
-                if (password_verify($password, $row['password'])) {  // ✅ correct
+                // Check hashed password (standard) OR plain text (legacy/migration)
+                if (password_verify($password, $row['password']) || $password === $row['password']) {
                     $_SESSION['logged_in'] = true;
                     $_SESSION['role']      = $row['role'];
                     $_SESSION['username']  = $row['username'];
@@ -42,6 +45,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         }
+    }
+
+    if (!empty($db_error)) {
+        $error = "Database Connection Error: " . $db_error . " (Check your .env file)";
     }
 
     if ($logged) {
