@@ -111,6 +111,13 @@ $sec_res = $conn->query("SELECT section_name, term_id FROM sections");
 if ($sec_res) {
     while ($s = $sec_res->fetch()) $existing_sections_js[] = $s;
 }
+
+// ---------- FETCH ALL SUBJECTS FOR JS FILTERING ----------
+$all_subjects_js = [];
+$sub_res = $conn->query("SELECT subject_id, subject_code, subject_name, units, year_level, department FROM subjects WHERE status='Active' ORDER BY subject_code");
+if ($sub_res) {
+    while ($sub = $sub_res->fetch()) $all_subjects_js[] = $sub;
+}
 ?>
 
 <?php include '../includes/header.php'; ?>
@@ -228,7 +235,7 @@ if ($sec_res) {
      ADD SECTION MODAL
 ================================================================ -->
 <div class="modal fade" id="addSectionModal" tabindex="-1">
-<div class="modal-dialog">
+<div class="modal-dialog modal-lg">
 <div class="modal-content">
 <form method="POST">
 
@@ -238,75 +245,98 @@ if ($sec_res) {
 </div>
 
 <div class="modal-body">
+    <div class="row">
+        <div class="col-md-6">
 
-    <!-- PROGRAM -->
-    <div class="mb-3">
-        <label class="form-label">Program <span class="text-danger">*</span></label>
-        <select id="add_program" name="program" class="form-select" required
-            onchange="generateSections(); filterAdviser('add', '');">
-            <option value="">Select Program</option>
-            <option value="BSIT">BS Information Technology (BSIT)</option>
-            <option value="BSTM">BS Tourism Management (BSTM)</option>
-            <option value="BSBA">BS Business Administration (BSBA)</option>
-            <option value="BSCRIM">BS Criminology (BS Crim)</option>
-            <option value="BSCE">BS Civil Engineering (BSCE)</option>
-        </select>
+            <!-- PROGRAM -->
+            <div class="mb-3">
+                <label class="form-label">Program <span class="text-danger">*</span></label>
+                <select id="add_program" name="program" class="form-select" required
+                    onchange="generateSections(); filterAdviser('add', ''); filterSubjects();">
+                    <option value="">Select Program</option>
+                    <option value="BSIT">BS Information Technology (BSIT)</option>
+                    <option value="BSTM">BS Tourism Management (BSTM)</option>
+                    <option value="BSBA">BS Business Administration (BSBA)</option>
+                    <option value="BSCRIM">BS Criminology (BS Crim)</option>
+                    <option value="BSCE">BS Civil Engineering (BSCE)</option>
+                </select>
+            </div>
+
+            <!-- YEAR LEVEL -->
+            <div class="mb-3">
+                <label class="form-label">Year Level <span class="text-danger">*</span></label>
+                <select id="year_level" name="year_level" class="form-select" required
+                    onchange="generateSections(); filterSubjects();">
+                    <option value="">Select Year</option>
+                    <option value="1st Year">1st Year</option>
+                    <option value="2nd Year">2nd Year</option>
+                    <option value="3rd Year">3rd Year</option>
+                    <option value="4th Year">4th Year</option>
+                </select>
+            </div>
+
+            <!-- SEMESTER -->
+            <div class="mb-3">
+                <label class="form-label">Semester <span class="text-danger">*</span></label>
+                <select name="term_id" id="semester" class="form-select" required onchange="generateSections(); filterSubjects();">
+                    <option value="">Select Semester</option>
+                    <?php foreach ($terms as $term):
+                        $semCode = (strpos($term['semester'], '1st') !== false) ? '1' : '2';
+                    ?>
+                    <option value="<?= $term['term_id'] ?>"
+                        data-sem="<?= $semCode ?>"
+                        data-semlabel="<?= strpos($term['semester'], '1st') !== false ? '1st Sem' : '2nd Sem' ?>"
+                        <?= !$term['is_active'] ? 'disabled style="color:#aaa;"' : '' ?>
+                        <?= ($activeTerm && $activeTerm['term_id'] == $term['term_id']) ? 'selected' : '' ?>>
+                        <?= htmlspecialchars($term['semester']) ?> (<?= htmlspecialchars($term['academic_year']) ?>)<?= !$term['is_active'] ? ' — Inactive' : '' ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <!-- SECTION NAME (generated) -->
+            <div class="mb-3">
+                <label class="form-label">Section <span class="text-danger">*</span></label>
+                <select id="section_name" name="section_name" class="form-select" required>
+                    <option value="">Select Program / Year / Semester first</option>
+                </select>
+                <small id="section_availability_hint" class="text-muted mt-1 d-block"></small>
+            </div>
+
+            <!-- TOTAL STUDENTS -->
+            <div class="mb-3">
+                <label class="form-label">Total Students</label>
+                <input type="number" name="total_students" class="form-control" min="0" max="40" value="0">
+            </div>
+
+            <!-- ADVISER — filtered by program -->
+            <div class="mb-3">
+                <label class="form-label">Adviser</label>
+                <select name="adviser_id" id="add_adviser_id" class="form-select">
+                    <option value="">— Select a Program first —</option>
+                </select>
+                <small id="add_adviser_hint" class="text-muted mt-1 d-block"></small>
+            </div>
+
+        </div>
+
+        <!-- RIGHT COLUMN: SUBJECT PREVIEW -->
+        <div class="col-md-6">
+            <div class="subject-preview-panel">
+                <div class="subject-preview-header">
+                    <i class="bi bi-book-fill me-2" style="color:var(--accent);"></i>
+                    <span>Subjects for this Section</span>
+                    <span id="subject_count_badge" class="subject-count-badge" style="display:none;"></span>
+                </div>
+                <div id="subject_preview_body" class="subject-preview-body">
+                    <div class="subject-preview-empty">
+                        <i class="bi bi-journal-x" style="font-size:28px; color:var(--text-secondary); opacity:0.4;"></i>
+                        <p>Select a Program, Year Level,<br>and Semester to see subjects.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
-
-    <!-- YEAR LEVEL -->
-    <div class="mb-3">
-        <label class="form-label">Year Level <span class="text-danger">*</span></label>
-        <select id="year_level" name="year_level" class="form-select" required onchange="generateSections()">
-            <option value="">Select Year</option>
-            <option value="1st Year">1st Year</option>
-            <option value="2nd Year">2nd Year</option>
-            <option value="3rd Year">3rd Year</option>
-            <option value="4th Year">4th Year</option>
-        </select>
-    </div>
-
-    <!-- SEMESTER -->
-    <div class="mb-3">
-        <label class="form-label">Semester <span class="text-danger">*</span></label>
-        <select name="term_id" id="semester" class="form-select" required onchange="generateSections()">
-            <option value="">Select Semester</option>
-            <?php foreach ($terms as $term):
-                $semCode = (strpos($term['semester'], '1st') !== false) ? '1' : '2';
-            ?>
-            <option value="<?= $term['term_id'] ?>"
-                data-sem="<?= $semCode ?>"
-                <?= !$term['is_active'] ? 'disabled style="color:#aaa;"' : '' ?>
-                <?= ($activeTerm && $activeTerm['term_id'] == $term['term_id']) ? 'selected' : '' ?>>
-                <?= htmlspecialchars($term['semester']) ?> (<?= htmlspecialchars($term['academic_year']) ?>)<?= !$term['is_active'] ? ' — Inactive' : '' ?>
-            </option>
-            <?php endforeach; ?>
-        </select>
-    </div>
-
-    <!-- SECTION NAME (generated) -->
-    <div class="mb-3">
-        <label class="form-label">Section <span class="text-danger">*</span></label>
-        <select id="section_name" name="section_name" class="form-select" required>
-            <option value="">Select Program / Year / Semester first</option>
-        </select>
-        <small id="section_availability_hint" class="text-muted mt-1 d-block"></small>
-    </div>
-
-    <!-- TOTAL STUDENTS -->
-    <div class="mb-3">
-        <label class="form-label">Total Students</label>
-        <input type="number" name="total_students" class="form-control" min="0" max="40" value="0">
-    </div>
-
-    <!-- ADVISER — filtered by program -->
-    <div class="mb-3">
-        <label class="form-label">Adviser</label>
-        <select name="adviser_id" id="add_adviser_id" class="form-select">
-            <option value="">— Select a Program first —</option>
-        </select>
-        <small id="add_adviser_hint" class="text-muted mt-1 d-block"></small>
-    </div>
-
 </div>
 
 <div class="modal-footer">
@@ -323,7 +353,7 @@ if ($sec_res) {
 
 
 <!-- ================================================================
-     EDIT SECTION MODAL
+     EDIT SECTION MODAL  (UNCHANGED)
 ================================================================ -->
 <div class="modal fade" id="editSectionModal" tabindex="-1">
 <div class="modal-dialog">
@@ -407,12 +437,116 @@ if ($sec_res) {
 </form>
 
 
+<style>
+/* ── Subject Preview Panel ── */
+.subject-preview-panel {
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    overflow: hidden;
+    height: 100%;
+    min-height: 380px;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-surface);
+}
+.subject-preview-header {
+    background: var(--color-surface2);
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    border-bottom: 1px solid var(--color-border);
+    flex-shrink: 0;
+}
+.subject-count-badge {
+    margin-left: auto;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 20px;
+    padding: 1px 9px;
+    font-size: 11px;
+    font-weight: 700;
+}
+.subject-preview-body {
+    flex: 1;
+    overflow-y: auto;
+    max-height: 340px;
+    padding: 8px 0;
+}
+.subject-preview-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 280px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-align: center;
+    gap: 10px;
+    padding: 20px;
+}
+.subject-preview-empty p { margin: 0; line-height: 1.6; }
+.subject-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 7px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 12px;
+}
+.subject-item:last-child { border-bottom: none; }
+.subject-item:hover { background: rgba(255,255,255,0.03); }
+.subject-code {
+    background: rgba(79,163,255,0.12);
+    color: var(--accent);
+    border-radius: 5px;
+    padding: 2px 7px;
+    font-size: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+.subject-name {
+    color: var(--text-primary);
+    font-weight: 500;
+    line-height: 1.4;
+    flex: 1;
+}
+.subject-units {
+    color: var(--text-secondary);
+    font-size: 10px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+.subject-no-results {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-align: center;
+    gap: 8px;
+    padding: 20px;
+}
+</style>
+
 <script>
 // ── ALL ACTIVE FACULTY (from PHP, used for client-side filtering) ──
 const ALL_FACULTY = <?= json_encode($all_faculty_js) ?>;
 
 // ── EXISTING SECTIONS (used to disable already-added ones) ──
 const EXISTING_SECTIONS = <?= json_encode($existing_sections_js) ?>;
+
+// ── ALL SUBJECTS (for preview panel) ──
+const ALL_SUBJECTS = <?= json_encode($all_subjects_js) ?>;
 
 // Program code → exact department string (must match faculty.department in DB)
 const PROGRAM_TO_DEPT = {
@@ -432,11 +566,83 @@ const PROGRAM_TO_SHORT_DEPT = {
     'BSCE':   'COE Department'
 };
 
+// Program code → subject department string (as stored in subjects.department)
+const PROGRAM_TO_SUBJECT_DEPT = {
+    'BSIT':   'BS Information Technology',
+    'BSTM':   'BS Tourism Management',
+    'BSBA':   'BS Business Administration',
+    'BSCRIM': 'BS Criminology',
+    'BSCE':   'BS Civil Engineering'
+};
+
+/**
+ * Filter and display subjects in the preview panel
+ * based on selected program, year level, and semester.
+ */
+function filterSubjects() {
+    const program   = document.getElementById('add_program').value;
+    const yearLevel = document.getElementById('year_level').value;
+    const semSelect = document.getElementById('semester');
+    const semOpt    = semSelect.options[semSelect.selectedIndex];
+    const semLabel  = semOpt ? semOpt.getAttribute('data-semlabel') : '';
+
+    const body  = document.getElementById('subject_preview_body');
+    const badge = document.getElementById('subject_count_badge');
+
+    // Not enough selected yet
+    if (!program || !yearLevel || !semLabel) {
+        badge.style.display = 'none';
+        body.innerHTML = `
+            <div class="subject-preview-empty">
+                <i class="bi bi-journal-x" style="font-size:28px; color:var(--text-secondary); opacity:0.4;"></i>
+                <p>Select a Program, Year Level,<br>and Semester to see subjects.</p>
+            </div>`;
+        return;
+    }
+
+    // Build year_level filter string as stored in subjects table
+    // e.g. "2nd Year" + "2nd Sem" → matches "2nd Year (2nd Sem)"
+    const yearNum  = yearLevel.replace(' Year', '');   // "2nd"
+    const semNum   = semLabel.replace(' Sem', '');     // "2nd"
+    const yearKey  = yearNum + ' Year (' + semNum + ' Sem)'; // "2nd Year (2nd Sem)"
+
+    const subjectDept = PROGRAM_TO_SUBJECT_DEPT[program] ?? '';
+
+    // Filter subjects
+    const filtered = ALL_SUBJECTS.filter(sub =>
+        sub.department.trim() === subjectDept.trim() &&
+        sub.year_level.trim() === yearKey.trim()
+    );
+
+    if (filtered.length === 0) {
+        badge.style.display = 'none';
+        body.innerHTML = `
+            <div class="subject-no-results">
+                <i class="bi bi-exclamation-circle" style="font-size:24px; color:#f59e0b;"></i>
+                <p>No subjects found for<br><strong>${yearLevel} — ${semLabel}</strong><br>in ${subjectDept}.</p>
+            </div>`;
+        return;
+    }
+
+    // Show count badge
+    badge.textContent   = filtered.length + ' subjects';
+    badge.style.display = 'inline-block';
+
+    // Render subject list
+    let html = '';
+    filtered.forEach(sub => {
+        html += `
+            <div class="subject-item">
+                <span class="subject-code">${sub.subject_code}</span>
+                <span class="subject-name">${sub.subject_name}</span>
+                <span class="subject-units">${sub.units} units</span>
+            </div>`;
+    });
+    body.innerHTML = html;
+}
+
 /**
  * Populate an adviser <select> with only faculty from the matching department.
- * @param {string} mode          - 'add' or 'edit'
- * @param {string} selectedId    - faculty_id to pre-select (pass '' if none)
- * @param {string} programCode   - override program (used by edit modal); if empty, reads from add_program
  */
 function filterAdviser(mode, selectedId, programCode) {
     const program = programCode
@@ -535,8 +741,8 @@ function generateSections() {
             .map(s => s.section_name)
     );
 
-    let totalSlots    = 40;
-    let takenCount    = 0;
+    let totalSlots     = 40;
+    let takenCount     = 0;
     let firstAvailable = true;
 
     for (let i = 1; i <= totalSlots; i++) {
@@ -546,14 +752,12 @@ function generateSections() {
         option.value = code;
 
         if (takenInTerm.has(code)) {
-            // Already added — grey out and disable
             option.text     = code + " — (Already Added)";
             option.disabled = true;
             option.style.color = "#aaa";
             takenCount++;
         } else {
             option.text = code;
-            // Auto-select the first available slot
             if (firstAvailable) {
                 option.selected = true;
                 firstAvailable  = false;
@@ -583,6 +787,14 @@ document.getElementById('addSectionModal').addEventListener('show.bs.modal', fun
     document.getElementById('add_adviser_hint').textContent    = 'Select a program to see available advisers.';
     document.getElementById('add_adviser_id').innerHTML        = '<option value="">— Select a Program first —</option>';
     document.getElementById('section_availability_hint').textContent = '';
+
+    // Reset subject preview
+    document.getElementById('subject_count_badge').style.display = 'none';
+    document.getElementById('subject_preview_body').innerHTML = `
+        <div class="subject-preview-empty">
+            <i class="bi bi-journal-x" style="font-size:28px; color:var(--text-secondary); opacity:0.4;"></i>
+            <p>Select a Program, Year Level,<br>and Semester to see subjects.</p>
+        </div>`;
 
     // If active term is already selected by default, auto-generate sections
     let semSelect = document.getElementById("semester");
