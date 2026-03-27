@@ -14,41 +14,28 @@ $pht_time = date('H:i:s');   // e.g. "14:30:00"
 // ================================================================
 
 // STATS
-$total_rooms = 0;
-$result = $conn->query("SELECT COUNT(*) as total FROM rooms");
-if ($result && $row = $result->fetch_assoc()) $total_rooms = $row['total'];
-
-$available_rooms = 0;
-$result = $conn->query("SELECT COUNT(*) as total FROM rooms WHERE status='Available'");
-if ($result && $row = $result->fetch_assoc()) $available_rooms = $row['total'];
-
-$labs = 0;
-$result = $conn->query("SELECT COUNT(*) as total FROM rooms WHERE room_type='Laboratory'");
-if ($result && $row = $result->fetch_assoc()) $labs = $row['total'];
-
-$lectures = 0;
-$result = $conn->query("SELECT COUNT(*) as total FROM rooms WHERE room_type='Lecture'");
-if ($result && $row = $result->fetch_assoc()) $lectures = $row['total'];
+$total_rooms = $conn->query("SELECT COUNT(*) FROM rooms")->fetchColumn();
+$available_rooms = $conn->query("SELECT COUNT(*) FROM rooms WHERE status='Available'")->fetchColumn();
+$labs = $conn->query("SELECT COUNT(*) FROM rooms WHERE room_type='Laboratory'")->fetchColumn();
+$lectures = $conn->query("SELECT COUNT(*) FROM rooms WHERE room_type='Lecture'")->fetchColumn();
 
 // Occupied NOW — use PHP PHT values, not MySQL NOW()
-$occupied_now = 0;
-$occ_result   = $conn->query("
-    SELECT COUNT(DISTINCT s.room_id) AS total
+$occupied_now = $conn->query("
+    SELECT COUNT(DISTINCT s.room_id)
     FROM schedules s
     JOIN academic_terms t ON s.term_id = t.term_id
     WHERE s.status      = 'Active'
-      AND t.is_active   = 1
+      AND t.is_active   = TRUE
       AND s.day_of_week = '$pht_day'
       AND s.start_time <= '$pht_time'
       AND s.end_time   >  '$pht_time'
       AND s.room_id IS NOT NULL
-");
-if ($occ_result && $row = $occ_result->fetch_assoc()) $occupied_now = $row['total'];
+")->fetchColumn();
 
 // ================================================================
 // FETCH ALL ROOMS WITH LIVE STATUS — using PHT day/time
 // ================================================================
-$rooms = $conn->query("
+$rooms_result = $conn->query("
     SELECT r.*,
         CASE
             WHEN EXISTS (
@@ -56,7 +43,7 @@ $rooms = $conn->query("
                 JOIN academic_terms t ON s.term_id = t.term_id
                 WHERE s.room_id     = r.room_id
                   AND s.status      = 'Active'
-                  AND t.is_active   = 1
+                  AND t.is_active   = TRUE
                   AND s.day_of_week = '$pht_day'
                   AND s.start_time <= '$pht_time'
                   AND s.end_time   >  '$pht_time'
@@ -65,7 +52,7 @@ $rooms = $conn->query("
         END AS live_status
     FROM rooms r
     ORDER BY r.building, r.floor, r.room_code
-");
+")->fetchAll();
 
 // ================================================================
 // FETCH SECTION ASSIGNMENTS
@@ -79,8 +66,8 @@ $assigned_rooms = $conn->query("
     JOIN sections s ON ra.section_id = s.section_id
     JOIN rooms    r ON ra.room_id    = r.room_id
     ORDER BY s.section_name
-");
-$assigned_count = $assigned_rooms ? $assigned_rooms->num_rows : 0;
+")->fetchAll();
+$assigned_count = count($assigned_rooms);
 
 // ================================================================
 // FETCH OCCUPIED NOW — rooms in use right now with class details
@@ -98,14 +85,14 @@ $occupied_rows = $conn->query("
     JOIN faculty  f   ON s.faculty_id = f.faculty_id
     JOIN academic_terms t ON s.term_id = t.term_id
     WHERE s.status      = 'Active'
-      AND t.is_active   = 1
+      AND t.is_active   = TRUE
       AND s.day_of_week = '$pht_day'
       AND s.start_time <= '$pht_time'
       AND s.end_time   >  '$pht_time'
       AND s.room_id IS NOT NULL
     ORDER BY r.building, r.floor, r.room_code
-");
-$occupied_count = $occupied_rows ? $occupied_rows->num_rows : 0;
+")->fetchAll();
+$occupied_count = count($occupied_rows);
 
 $active_tab = $_GET['tab'] ?? 'all';
 
@@ -217,8 +204,8 @@ $programNames = [
                     </tr>
                 </thead>
                 <tbody id="roomTbody">
-                    <?php if ($rooms && $rooms->num_rows > 0):
-                        while ($room = $rooms->fetch_assoc()): ?>
+                    <?php if (!empty($rooms_result)):
+                        foreach ($rooms_result as $room): ?>
                     <tr>
                         <td><strong><?= htmlspecialchars($room['room_code']) ?></strong></td>
                         <td><?= htmlspecialchars($room['room_name']) ?></td>
@@ -248,7 +235,7 @@ $programNames = [
                             <?php endif; ?>
                         </td>
                     </tr>
-                    <?php endwhile; else: ?>
+                    <?php endforeach; else: ?>
                     <tr><td colspan="7" class="text-center py-3">No rooms found.</td></tr>
                     <?php endif; ?>
                 </tbody>
@@ -283,8 +270,8 @@ $programNames = [
                     </tr>
                 </thead>
                 <tbody>
-                    <?php if ($assigned_rooms && $assigned_rooms->num_rows > 0):
-                        while ($row = $assigned_rooms->fetch_assoc()): ?>
+                    <?php if (!empty($assigned_rooms)):
+                        foreach ($assigned_rooms as $row): ?>
                     <tr>
                         <td><strong><?= htmlspecialchars($row['section_name']) ?></strong></td>
                         <td style="font-size:12px;">
@@ -302,7 +289,7 @@ $programNames = [
                         <td><?= htmlspecialchars($row['building']) ?></td>
                         <td><?= htmlspecialchars($row['floor']) ?></td>
                     </tr>
-                    <?php endwhile; else: ?>
+                    <?php endforeach; else: ?>
                     <tr><td colspan="7" class="text-center py-3">No room assignments found.</td></tr>
                     <?php endif; ?>
                 </tbody>
@@ -362,7 +349,7 @@ $programNames = [
                     </tr>
                 </thead>
                 <tbody>
-                    <?php while ($row = $occupied_rows->fetch_assoc()):
+                    <?php foreach ($occupied_rows as $row):
                         $endTs    = strtotime(date('Y-m-d') . ' ' . $row['end_time']);
                         $nowTs    = strtotime(date('Y-m-d') . ' ' . $pht_time);
                         $diffMins = max(0, round(($endTs - $nowTs) / 60));
@@ -419,7 +406,7 @@ $programNames = [
                             </span>
                         </td>
                     </tr>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                 </tbody>
             </table>
         </div>

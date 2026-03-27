@@ -1,5 +1,14 @@
 <?php
 require_once 'includes/auth.php'; require_once '../config/db.php';
+
+if (!$conn instanceof PDO) {
+    die("<div style='padding:20px; font-family:sans-serif; color:#ef4444; background:rgba(239,68,68,0.05); border:1px solid #ef4444; border-radius:8px; margin:20px;'>
+            <h3 style='margin-top:0;'>Database Connection Error</h3>
+            <p>Could not connect to the database. Please check your <strong>.env</strong> file and network connection.</p>
+            <p style='font-size:13px; color:#666;'>Error Details: " . htmlspecialchars($db_error ?: 'Unknown Error') . "</p>
+            <a href='../login.php' style='color:#3b82f6;'>&larr; Back to Login</a>
+         </div>");
+}
 $page_title = 'Sections - Class Scheduling System';
 
 // ---------- ADD ----------
@@ -12,11 +21,9 @@ if (isset($_POST['add_section'])) {
     $term_id        = !empty($_POST['term_id']) ? intval($_POST['term_id']) : NULL;
 
     $checkStmt = $conn->prepare("SELECT section_id FROM sections WHERE section_name=? AND term_id=? LIMIT 1");
-    $checkStmt->bind_param("si", $section_name, $term_id);
-    $checkStmt->execute();
-    $checkStmt->store_result();
-
-    if ($checkStmt->num_rows > 0) {
+    $checkStmt->execute([$section_name, $term_id]);
+    
+    if ($checkStmt->fetch()) {
         header("Location: sections.php?error=duplicate");
         exit();
     }
@@ -24,12 +31,10 @@ if (isset($_POST['add_section'])) {
     $stmt = $conn->prepare("INSERT INTO sections 
         (section_name, program, year_level, total_students, adviser_id, term_id, status) 
         VALUES (?, ?, ?, ?, ?, ?, 'Active')");
-    $stmt->bind_param("sssiis",
+    if ($stmt->execute([
         $section_name, $program, $year_level,
         $total_students, $adviser_id, $term_id
-    );
-
-    if ($stmt->execute()) {
+    ])) {
         header("Location: sections.php?success=added");
         exit();
     } else {
@@ -62,9 +67,8 @@ if (isset($_POST['edit_section'])) {
     $status     = $_POST['status'];
 
     $stmt = $conn->prepare("UPDATE sections SET adviser_id=?, term_id=?, status=? WHERE section_id=?");
-    $stmt->bind_param("iisi", $adviser_id, $term_id, $status, $section_id);
-
-    if ($stmt->execute()) {
+    
+    if ($stmt->execute([$adviser_id, $term_id, $status, $section_id])) {
         header("Location: sections.php?success=updated");
         exit();
     }
@@ -74,8 +78,7 @@ if (isset($_POST['edit_section'])) {
 if (isset($_POST['delete_section'])) {
     $section_id = intval($_POST['section_id']);
     $stmt = $conn->prepare("DELETE FROM sections WHERE section_id=?");
-    $stmt->bind_param("i", $section_id);
-    if ($stmt->execute()) {
+    if ($stmt->execute([$section_id])) {
         header("Location: sections.php?success=deleted");
     } else {
         header("Location: sections.php?error=cannot_delete");
@@ -87,7 +90,7 @@ if (isset($_POST['delete_section'])) {
 $terms = [];
 $termResult = $conn->query("SELECT term_id, academic_year, semester, is_active FROM academic_terms ORDER BY academic_year DESC, term_id ASC");
 if ($termResult) {
-    while ($t = $termResult->fetch_assoc()) $terms[] = $t;
+    while ($t = $termResult->fetch()) $terms[] = $t;
 }
 
 $activeTerm = null;
@@ -99,14 +102,14 @@ foreach ($terms as $t) {
 $all_faculty_js = [];
 $fac_res = $conn->query("SELECT faculty_id, first_name, last_name, department FROM faculty WHERE status='Active' ORDER BY last_name, first_name");
 if ($fac_res) {
-    while ($f = $fac_res->fetch_assoc()) $all_faculty_js[] = $f;
+    while ($f = $fac_res->fetch()) $all_faculty_js[] = $f;
 }
 
 // ---------- FETCH EXISTING SECTION NAMES FOR JS (to disable duplicates) ----------
 $existing_sections_js = [];
 $sec_res = $conn->query("SELECT section_name, term_id FROM sections");
 if ($sec_res) {
-    while ($s = $sec_res->fetch_assoc()) $existing_sections_js[] = $s;
+    while ($s = $sec_res->fetch()) $existing_sections_js[] = $s;
 }
 ?>
 
@@ -152,7 +155,7 @@ if ($sec_res) {
                 </thead>
                 <tbody>
                     <?php
-                    $result = $conn->query("
+                    $sections_all = $conn->query("
                         SELECT s.*, 
                             CONCAT(f.first_name,' ',f.last_name) AS adviser_name,
                             at.semester AS term_semester,
@@ -161,9 +164,9 @@ if ($sec_res) {
                         LEFT JOIN faculty f ON s.adviser_id = f.faculty_id
                         LEFT JOIN academic_terms at ON s.term_id = at.term_id
                         ORDER BY s.section_id DESC
-                    ");
-                    if ($result && $result->num_rows > 0):
-                        while ($row = $result->fetch_assoc()):
+                    ")->fetchAll();
+                    if (!empty($sections_all)):
+                        foreach ($sections_all as $row):
                     ?>
                     <tr>
                         <td><strong><?= htmlspecialchars($row['section_name']) ?></strong></td>
@@ -211,7 +214,7 @@ if ($sec_res) {
                             </button>
                         </td>
                     </tr>
-                    <?php endwhile; else: ?>
+                    <?php endforeach; else: ?>
                     <tr><td colspan="8" class="text-center py-3">No sections found. Add one!</td></tr>
                     <?php endif; ?>
                 </tbody>

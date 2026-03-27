@@ -6,15 +6,15 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
     exit();
 }
 
-require_once 'config/db.php';
+$error = '';
+$db_error = ''; 
 
 $hardcoded = [
     'admin' => ['password' => 'admin123', 'role' => 'admin', 'full_name' => 'System Administrator'],
 ];
 
-$error = '';
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    require_once 'config/db.php';
     $username = trim($_POST['username'] ?? '');
     $password = trim($_POST['password'] ?? '');
     $logged   = false;
@@ -27,22 +27,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $logged = true;
     }
 
-    if (!$logged) {
-        $stmt = $conn->prepare("SELECT * FROM system_accounts WHERE email=? AND status='Active' LIMIT 1");
+    if (!$logged && empty($db_error)) {
+        // Search by both email OR username
+        $stmt = $conn->prepare("SELECT * FROM system_accounts WHERE (email=? OR username=?) AND status='Active' LIMIT 1");
         if ($stmt) {
-            $stmt->bind_param("s", $username);
-            $stmt->execute();
-            $result = $stmt->get_result();
-            if ($result && $row = $result->fetch_assoc()) {
-           if (password_verify($password, $row['password'])) {  // ✅ correct
-    $_SESSION['logged_in'] = true;
-    $_SESSION['role']      = $row['role'];
-    $_SESSION['username']  = $row['username'];
-    $_SESSION['full_name'] = $row['full_name'];
-    $logged = true;
-}
+            $stmt->execute([$username, $username]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
+                // Check hashed password (standard) OR plain text (legacy/migration)
+                if (password_verify($password, $row['password']) || $password === $row['password']) {
+                    $_SESSION['logged_in'] = true;
+                    $_SESSION['role']      = $row['role'];
+                    $_SESSION['username']  = $row['username'];
+                    $_SESSION['full_name'] = $row['full_name'];
+                    $logged = true;
+                }
             }
         }
+    }
+
+    if (!empty($db_error)) {
+        $error = "Database Connection Error: " . $db_error . " (Check your .env file)";
     }
 
     if ($logged) {
@@ -59,10 +64,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign In — ClassSync</title>
+    
+    <!-- Resource Hints & Preloads -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Syne:wght@700;800&display=swap">
+    <link rel="preload" as="style" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+
+    <!-- Optimized Fonts & Icons -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Syne:wght@700;800&display=swap" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" media="print" onload="this.media='all'">
+    <noscript>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Syne:wght@700;800&display=swap">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    </noscript>
     <style>
         *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 

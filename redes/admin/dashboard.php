@@ -3,10 +3,19 @@ require_once 'includes/auth.php';
 require_once '../config/db.php';
 $page_title = 'Dashboard - Class Scheduling System';
 
+if (!$conn instanceof PDO) {
+    die("<div style='padding:20px; font-family:sans-serif; color:#ef4444; background:rgba(239,68,68,0.05); border:1px solid #ef4444; border-radius:8px; margin:20px;'>
+            <h3 style='margin-top:0;'>Database Connection Error</h3>
+            <p>Could not connect to the database. Please check your <strong>.env</strong> file and network connection.</p>
+            <p style='font-size:13px; color:#666;'>Error Details: " . htmlspecialchars($db_error ?: 'Unknown Error') . "</p>
+            <a href='../login.php' style='color:#3b82f6;'>&larr; Back to Login</a>
+         </div>");
+}
+
 // ================================================================
 // GET ACTIVE TERM
 // ================================================================
-$activeTermRow = $conn->query("SELECT term_id, academic_year, semester FROM academic_terms WHERE is_active=1 LIMIT 1")->fetch_assoc();
+$activeTermRow = $conn->query("SELECT term_id, academic_year, semester FROM academic_terms WHERE is_active=TRUE LIMIT 1")->fetch();
 $active_term_id   = $activeTermRow['term_id']   ?? 0;
 $active_term_name = $activeTermRow ? $activeTermRow['semester'] . ' — ' . $activeTermRow['academic_year'] : 'No Active Term';
 
@@ -18,9 +27,9 @@ $active_term_name = $activeTermRow ? $activeTermRow['semester'] . ' — ' . $act
 // BACKFILL: Sync room_id into schedules from room_assignments
 $conn->query("
     UPDATE schedules s
-    JOIN room_assignments ra ON ra.section_id = s.section_id
-    SET s.room_id = ra.room_id
-    WHERE s.room_id IS NULL AND ra.room_id IS NOT NULL
+    SET room_id = ra.room_id
+    FROM room_assignments ra
+    WHERE ra.section_id = s.section_id AND s.room_id IS NULL AND ra.room_id IS NOT NULL
 ");
 
 $current_conflicts = [];
@@ -48,7 +57,7 @@ $fq = $conn->query("
     WHERE s1.term_id=$active_term_id AND s2.term_id=$active_term_id
       AND s1.status='Active' AND s2.status='Active'
 ");
-if ($fq) while ($fc = $fq->fetch_assoc()) {
+if ($fq) while ($fc = $fq->fetch()) {
     $key  = $fc['sid1'].'_'.$fc['sid2'].'_Faculty';
     $desc = "Faculty conflict: ".$fc['faculty_name']." is double-booked on ".$fc['day_of_week'].
             " — teaching '".$fc['sub1_name']."' (".$fc['sec1_name'].") ".
@@ -84,7 +93,7 @@ $rq = $conn->query("
       AND COALESCE(s2.room_id,ra2.room_id) IS NOT NULL
       AND COALESCE(s1.room_id,ra1.room_id) = COALESCE(s2.room_id,ra2.room_id)
 ");
-if ($rq) while ($rc = $rq->fetch_assoc()) {
+if ($rq) while ($rc = $rq->fetch()) {
     $key        = $rc['sid1'].'_'.$rc['sid2'].'_Room';
     $sec1_label = $rc['sec1_name'].($rc['prog1']!==$rc['prog2'] ? ' ('.$rc['prog1'].')' : '');
     $sec2_label = $rc['sec2_name'].($rc['prog1']!==$rc['prog2'] ? ' ('.$rc['prog2'].')' : '');
@@ -114,7 +123,7 @@ $sq = $conn->query("
     WHERE s1.term_id=$active_term_id AND s2.term_id=$active_term_id
       AND s1.status='Active' AND s2.status='Active'
 ");
-if ($sq) while ($sc = $sq->fetch_assoc()) {
+if ($sq) while ($sc = $sq->fetch()) {
     $key  = $sc['sid1'].'_'.$sc['sid2'].'_Section';
     $desc = "Section conflict: ".$sc['section_name']." has two overlapping classes on ".$sc['day_of_week'].
             " — '".$sc['sub1_name']."' ".date('h:i A',strtotime($sc['s1_start']))."–".date('h:i A',strtotime($sc['s1_end'])).
@@ -124,12 +133,16 @@ if ($sq) while ($sc = $sq->fetch_assoc()) {
 
 // ── Reconcile DB ──
 $conn->query("
-    DELETE c1 FROM conflicts c1
-    INNER JOIN conflicts c2
-        ON LEAST(c1.schedule_id_1,c1.schedule_id_2)    = LEAST(c2.schedule_id_1,c2.schedule_id_2)
-        AND GREATEST(c1.schedule_id_1,c1.schedule_id_2) = GREATEST(c2.schedule_id_1,c2.schedule_id_2)
-        AND c1.conflict_type = c2.conflict_type AND c1.conflict_id < c2.conflict_id
-    WHERE c1.status='Unresolved' AND c2.status='Unresolved'
+    DELETE FROM conflicts
+    WHERE conflict_id IN (
+        SELECT c1.conflict_id
+        FROM conflicts c1
+        INNER JOIN conflicts c2
+            ON LEAST(c1.schedule_id_1,c1.schedule_id_2)    = LEAST(c2.schedule_id_1,c2.schedule_id_2)
+            AND GREATEST(c1.schedule_id_1,c1.schedule_id_2) = GREATEST(c2.schedule_id_1,c2.schedule_id_2)
+            AND c1.conflict_type = c2.conflict_type AND c1.conflict_id < c2.conflict_id
+        WHERE c1.status='Unresolved' AND c2.status='Unresolved'
+    )
 ");
 $existing_unresolved = [];
 $ex_res = $conn->query("
@@ -139,7 +152,7 @@ $ex_res = $conn->query("
            conflict_type
     FROM conflicts WHERE status='Unresolved'
 ");
-if ($ex_res) while ($ex = $ex_res->fetch_assoc()) {
+if ($ex_res) while ($ex = $ex_res->fetch()) {
     $existing_unresolved[$ex['sid_lo'].'_'.$ex['sid_hi'].'_'.$ex['conflict_type']] = $ex['conflict_id'];
 }
 
@@ -151,7 +164,7 @@ foreach ($current_conflicts as $cf) {
 foreach ($existing_unresolved as $key => $cid) {
     if (!isset($normalized_conflicts[$key])) {
         $u = $conn->prepare("UPDATE conflicts SET status='Resolved',resolved_at=NOW(),resolved_note='Auto-resolved: schedule was fixed in the timetable' WHERE conflict_id=?");
-        $u->bind_param("i",$cid); $u->execute();
+        $u->execute([$cid]);
     }
 }
 foreach ($normalized_conflicts as $key => $cf) {
@@ -159,18 +172,18 @@ foreach ($normalized_conflicts as $key => $cf) {
         $lo=$min=$cf['sid1']<$cf['sid2']?$cf['sid1']:$cf['sid2'];
         $hi=$cf['sid1']<$cf['sid2']?$cf['sid2']:$cf['sid1'];
         $i = $conn->prepare("INSERT INTO conflicts (conflict_type,schedule_id_1,schedule_id_2,description,status) VALUES(?,?,?,?,'Unresolved')");
-        $i->bind_param("siis",$cf['type'],$lo,$hi,$cf['desc']); $i->execute();
+        $i->execute([$cf['type'],$lo,$hi,$cf['desc']]);
     }
 }
 
 // ================================================================
 // DASHBOARD STATS (read AFTER reconciliation so counts are correct)
 // ================================================================
-$sections_count  = $conn->query("SELECT COUNT(*) FROM sections WHERE status='Active'")->fetch_row()[0] ?? 0;
-$schedules_count = $conn->query("SELECT COUNT(*) FROM schedules WHERE status='Active'")->fetch_row()[0] ?? 0;
-$rooms_count     = $conn->query("SELECT COUNT(*) FROM rooms WHERE status='Available'")->fetch_row()[0] ?? 0;
-$faculty_count   = $conn->query("SELECT COUNT(*) FROM faculty WHERE status='Active'")->fetch_row()[0] ?? 0;
-$conflicts_count = $conn->query("SELECT COUNT(*) FROM conflicts WHERE status='Unresolved'")->fetch_row()[0] ?? 0;
+$sections_count  = $conn->query("SELECT COUNT(*) FROM sections WHERE status='Active'")->fetchColumn() ?? 0;
+$schedules_count = $conn->query("SELECT COUNT(*) FROM schedules WHERE status='Active'")->fetchColumn() ?? 0;
+$rooms_count     = $conn->query("SELECT COUNT(*) FROM rooms WHERE status='Available'")->fetchColumn() ?? 0;
+$faculty_count   = $conn->query("SELECT COUNT(*) FROM faculty WHERE status='Active'")->fetchColumn() ?? 0;
+$conflicts_count = $conn->query("SELECT COUNT(*) FROM conflicts WHERE status='Unresolved'")->fetchColumn() ?? 0;
 
 $overloaded_count = 0;
 $ol = $conn->query("
@@ -179,19 +192,19 @@ $ol = $conn->query("
         FROM faculty f
         JOIN schedules s  ON f.faculty_id = s.faculty_id
         JOIN academic_terms t ON s.term_id = t.term_id
-        WHERE s.status='Active' AND t.is_active=1
+        WHERE s.status='Active' AND t.is_active=TRUE
         GROUP BY f.faculty_id, f.max_teaching_hours
-        HAVING SUM(TIMESTAMPDIFF(MINUTE,s.start_time,s.end_time)/60) > f.max_teaching_hours
+        HAVING SUM(EXTRACT(EPOCH FROM (s.end_time - s.start_time)::interval) / 3600) > f.max_teaching_hours
     ) ol
 ");
-if ($ol && $r = $ol->fetch_assoc()) $overloaded_count = $r['total'];
+if ($ol && $r = $ol->fetch()) $overloaded_count = $r['total'];
 
 $today_day   = date('l');
 $today_count = $conn->query("
     SELECT COUNT(*) FROM schedules s
     JOIN academic_terms t ON s.term_id=t.term_id
-    WHERE s.status='Active' AND t.is_active=1 AND s.day_of_week='$today_day'
-")->fetch_row()[0] ?? 0;
+    WHERE s.status='Active' AND t.is_active=TRUE AND s.day_of_week='$today_day'
+")->fetchColumn() ?? 0;
 ?>
 
 <?php include '../includes/header.php'; ?>

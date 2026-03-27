@@ -24,22 +24,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $status        = $_POST['status'];
 
         $check = $conn->prepare("SELECT faculty_id FROM faculty WHERE faculty_code=? OR email=?");
-        $check->bind_param("ss", $faculty_code, $email);
-        $check->execute();
-        if ($check->get_result()->num_rows > 0) {
+        $check->execute([$faculty_code, $email]);
+        if ($check->fetch()) {
             $errors[] = "Faculty code or email already exists.";
         } else {
-            $stmt = $conn->prepare("INSERT INTO faculty 
-                (faculty_code, first_name, last_name, department, email, phone, job_type, total_units, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("sssssssis",
-                $faculty_code, $first_name, $last_name,
-                $department, $email, $phone, $job_type, $total_units, $status);
-            if ($stmt->execute()) {
-                $success    = "Teacher added successfully!";
-                $active_tab = 'teachers';
-            } else {
-                $errors[] = "Error adding teacher: " . $conn->error;
+            try {
+                $stmt = $conn->prepare("INSERT INTO faculty 
+                    (faculty_code, first_name, last_name, department, email, phone, job_type, total_units, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                if ($stmt->execute([
+                    $faculty_code, $first_name, $last_name,
+                    $department, $email, $phone, $job_type, $total_units, $status
+                ])) {
+                    $success    = "Teacher added successfully!";
+                    $active_tab = 'teachers';
+                }
+            } catch (PDOException $e) {
+                $errors[] = "Error adding teacher: " . $e->getMessage();
             }
         }
     }
@@ -57,24 +58,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $status      = $_POST['status'];
 
         $dupCheck = $conn->prepare("SELECT faculty_id FROM faculty WHERE email=? AND faculty_id != ?");
-        $dupCheck->bind_param("si", $email, $faculty_id);
-        $dupCheck->execute();
-        if ($dupCheck->get_result()->num_rows > 0) {
+        $dupCheck->execute([$email, $faculty_id]);
+        if ($dupCheck->fetch()) {
             $errors[]   = "That email is already used by another teacher.";
             $active_tab = 'teachers';
         } else {
-            $stmt = $conn->prepare("UPDATE faculty SET
-                first_name=?, last_name=?, department=?,
-                email=?, phone=?, job_type=?, total_units=?, status=?
-                WHERE faculty_id=?");
-            $stmt->bind_param("ssssssisi",
-                $first_name, $last_name, $department,
-                $email, $phone, $job_type, $total_units, $status, $faculty_id);
-            if ($stmt->execute()) {
-                $success    = "Teacher updated successfully!";
-                $active_tab = 'teachers';
-            } else {
-                $errors[] = "Error updating teacher: " . $conn->error;
+            try {
+                $stmt = $conn->prepare("UPDATE faculty SET
+                    first_name=?, last_name=?, department=?,
+                    email=?, phone=?, job_type=?, total_units=?, status=?
+                    WHERE faculty_id=?");
+                if ($stmt->execute([
+                    $first_name, $last_name, $department,
+                    $email, $phone, $job_type, $total_units, $status, $faculty_id
+                ])) {
+                    $success    = "Teacher updated successfully!";
+                    $active_tab = 'teachers';
+                }
+            } catch (PDOException $e) {
+                $errors[] = "Error updating teacher: " . $e->getMessage();
             }
         }
     }
@@ -82,11 +84,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ---------- DELETE TEACHER ----------
     if (isset($_POST['action']) && $_POST['action'] === 'delete_teacher') {
         $faculty_id = intval($_POST['faculty_id']);
-        $stmt = $conn->prepare("DELETE FROM faculty WHERE faculty_id=?");
-        $stmt->bind_param("i", $faculty_id);
-        if ($stmt->execute()) {
-            $success = "Teacher deleted successfully!";
-        } else {
+        try {
+            $stmt = $conn->prepare("DELETE FROM faculty WHERE faculty_id=?");
+            if ($stmt->execute([$faculty_id])) {
+                $success = "Teacher deleted successfully!";
+            }
+        } catch (PDOException $e) {
             $errors[] = "Cannot delete — teacher may be assigned to schedules or sections.";
         }
         $active_tab = 'teachers';
@@ -112,23 +115,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $active_tab = 'registrars';
         } else {
             $check = $conn->prepare("SELECT account_id FROM system_accounts WHERE email=?");
-            $check->bind_param("s", $email);
-            $check->execute();
-            if ($check->get_result()->num_rows > 0) {
+            $check->execute([$email]);
+            if ($check->fetch()) {
                 $errors[]   = "Email already exists.";
                 $active_tab = 'registrars';
             } else {
-                $hashed = password_hash($password, PASSWORD_BCRYPT);
-                $stmt   = $conn->prepare("INSERT INTO system_accounts
-                    (username, password, full_name, email, phone, department, role, status)
-                    VALUES (?, ?, ?, ?, ?, ?, 'registrar', ?)");
-                $stmt->bind_param("sssssss",
-                    $username, $hashed, $full_name,
-                    $email, $phone, $department, $status);
-                if ($stmt->execute()) {
-                    $success = "Registrar account created successfully!";
-                } else {
-                    $errors[] = "Error creating account: " . $conn->error;
+                try {
+                    $hashed = password_hash($password, PASSWORD_BCRYPT);
+                    $stmt   = $conn->prepare("INSERT INTO system_accounts
+                        (username, password, full_name, email, phone, department, role, status)
+                        VALUES (?, ?, ?, ?, ?, ?, 'registrar', ?)");
+                    if ($stmt->execute([
+                        $username, $hashed, $full_name,
+                        $email, $phone, $department, $status
+                    ])) {
+                        $success = "Registrar account created successfully!";
+                    }
+                } catch (PDOException $e) {
+                    $errors[] = "Error creating account: " . $e->getMessage();
                 }
                 $active_tab = 'registrars';
             }
@@ -155,29 +159,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $errors[]   = "Password must have: " . implode(', ', $pw_errors) . ".";
                 $active_tab = 'registrars';
             } else {
-                $hashed = password_hash($new_pass, PASSWORD_BCRYPT);
-                $stmt   = $conn->prepare("UPDATE system_accounts SET
-                    full_name=?, email=?, phone=?, department=?, status=?, password=?
-                    WHERE account_id=?");
-                $stmt->bind_param("ssssssi",
-                    $full_name, $email, $phone, $department, $status, $hashed, $account_id);
-                if ($stmt->execute()) {
-                    $success = "Registrar account updated successfully!";
-                } else {
-                    $errors[] = "Error updating account: " . $conn->error;
+                try {
+                    $hashed = password_hash($new_pass, PASSWORD_BCRYPT);
+                    $stmt   = $conn->prepare("UPDATE system_accounts SET
+                        full_name=?, email=?, phone=?, department=?, status=?, password=?
+                        WHERE account_id=?");
+                    if ($stmt->execute([
+                        $full_name, $email, $phone, $department, $status, $hashed, $account_id
+                    ])) {
+                        $success = "Registrar account updated successfully!";
+                    }
+                } catch (PDOException $e) {
+                    $errors[] = "Error updating account: " . $e->getMessage();
                 }
                 $active_tab = 'registrars';
             }
         } else {
-            $stmt = $conn->prepare("UPDATE system_accounts SET
-                full_name=?, email=?, phone=?, department=?, status=?
-                WHERE account_id=?");
-            $stmt->bind_param("sssssi",
-                $full_name, $email, $phone, $department, $status, $account_id);
-            if ($stmt->execute()) {
-                $success = "Registrar account updated successfully!";
-            } else {
-                $errors[] = "Error updating account: " . $conn->error;
+            try {
+                $stmt = $conn->prepare("UPDATE system_accounts SET
+                    full_name=?, email=?, phone=?, department=?, status=?
+                    WHERE account_id=?");
+                if ($stmt->execute([
+                    $full_name, $email, $phone, $department, $status, $account_id
+                ])) {
+                    $success = "Registrar account updated successfully!";
+                }
+            } catch (PDOException $e) {
+                $errors[] = "Error updating account: " . $e->getMessage();
             }
             $active_tab = 'registrars';
         }
@@ -186,12 +194,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ---------- DELETE REGISTRAR ----------
     if (isset($_POST['action']) && $_POST['action'] === 'delete_registrar') {
         $account_id = intval($_POST['account_id']);
-        $stmt = $conn->prepare("DELETE FROM system_accounts WHERE account_id=?");
-        $stmt->bind_param("i", $account_id);
-        if ($stmt->execute()) {
-            $success = "Registrar account deleted.";
-        } else {
-            $errors[] = "Error deleting account.";
+        try {
+            $stmt = $conn->prepare("DELETE FROM system_accounts WHERE account_id=?");
+            if ($stmt->execute([$account_id])) {
+                $success = "Registrar account deleted.";
+            }
+        } catch (PDOException $e) {
+            $errors[] = "Error deleting account: " . $e->getMessage();
         }
         $active_tab = 'registrars';
     }
@@ -200,22 +209,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // ================================================================
 // FETCH DATA
 // ================================================================
-$teachers   = $conn->query("SELECT * FROM faculty ORDER BY last_name, first_name");
-$registrars = $conn->query("SELECT * FROM system_accounts WHERE role='registrar' ORDER BY full_name");
+$teachers_list   = $conn->query("SELECT * FROM faculty ORDER BY last_name, first_name")->fetchAll();
+$registrars_list = $conn->query("SELECT * FROM system_accounts WHERE role='registrar' ORDER BY full_name")->fetchAll();
 
-$teacher_count   = $teachers   ? $teachers->num_rows   : 0;
-$registrar_count = $registrars ? $registrars->num_rows : 0;
+$teacher_count   = count($teachers_list);
+$registrar_count = count($registrars_list);
 
 // ── AUTO-GENERATE NEXT FACULTY CODE ──
-$maxCode = $conn->query("SELECT faculty_code FROM faculty WHERE faculty_code LIKE 'FAC-%' ORDER BY faculty_code DESC")->fetch_assoc();
+$maxCodeRow = $conn->query("SELECT faculty_code FROM faculty WHERE faculty_code LIKE 'FAC-%' ORDER BY faculty_code DESC LIMIT 1")->fetch();
 $nextNum = 1;
-if ($maxCode) {
-    $parts   = explode('-', $maxCode['faculty_code']);
+if ($maxCodeRow) {
+    $parts   = explode('-', $maxCodeRow['faculty_code']);
     $nextNum = intval(end($parts)) + 1;
 }
 $usedCodes = [];
 $usedRes   = $conn->query("SELECT faculty_code FROM faculty WHERE faculty_code LIKE 'FAC-%'");
-while ($uc = $usedRes->fetch_assoc()) $usedCodes[] = $uc['faculty_code'];
+while ($uc = $usedRes->fetch()) $usedCodes[] = $uc['faculty_code'];
 
 $availableCodes = [];
 for ($i = 1; $i <= $nextNum; $i++) {
@@ -328,9 +337,9 @@ $departments = [
                 </thead>
                 <tbody id="teacherTbody">
                     <?php
-                    $teachers_display = $conn->query("SELECT * FROM faculty ORDER BY last_name, first_name");
-                    if ($teachers_display && $teachers_display->num_rows > 0):
-                        while ($t = $teachers_display->fetch_assoc()):
+                    $teachers_display = $conn->query("SELECT * FROM faculty ORDER BY last_name, first_name")->fetchAll();
+                    if (!empty($teachers_display)):
+                        foreach ($teachers_display as $t):
                     ?>
                     <tr>
                         <td><strong><?= htmlspecialchars($t['faculty_code']) ?></strong></td>
@@ -371,7 +380,7 @@ $departments = [
                             </button>
                         </td>
                     </tr>
-                    <?php endwhile; else: ?>
+                    <?php endforeach; else: ?>
                     <tr id="noTeacherRow"><td colspan="9" class="text-center py-3">No teachers found. Add one!</td></tr>
                     <?php endif; ?>
                 </tbody>
@@ -409,9 +418,9 @@ $departments = [
                 </thead>
                 <tbody>
                     <?php
-                    $reg_display = $conn->query("SELECT * FROM system_accounts WHERE role='registrar' ORDER BY full_name");
-                    if ($reg_display && $reg_display->num_rows > 0):
-                        while ($r = $reg_display->fetch_assoc()):
+                    $reg_display = $conn->query("SELECT * FROM system_accounts WHERE role='registrar' ORDER BY full_name")->fetchAll();
+                    if (!empty($reg_display)):
+                        foreach ($reg_display as $r):
                     ?>
                     <tr>
                         <td><strong><?= htmlspecialchars($r['username']) ?></strong></td>
@@ -437,7 +446,7 @@ $departments = [
                             </button>
                         </td>
                     </tr>
-                    <?php endwhile; else: ?>
+                    <?php endforeach; else: ?>
                     <tr><td colspan="7" class="text-center py-3">No registrar accounts found. Add one!</td></tr>
                     <?php endif; ?>
                 </tbody>

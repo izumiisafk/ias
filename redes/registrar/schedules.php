@@ -7,36 +7,37 @@ $page_title = 'Class Timetable - Class Scheduling System';
 // REGISTRAR: EDIT ONLY — no add, no delete
 // ================================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_schedule'])) {
-    $stmt = $conn->prepare("
-        UPDATE schedules SET
-            faculty_id  = ?,
-            day_of_week = ?,
-            start_time  = ?,
-            end_time    = ?,
-            status      = ?
-        WHERE schedule_id = ?
-    ");
-    $status = in_array($_POST['status'], ['Active','Cancelled']) ? $_POST['status'] : 'Active';
-    $stmt->bind_param("issssi",
-        $_POST['faculty_id'],
-        $_POST['day_of_week'],
-        $_POST['start_time'],
-        $_POST['end_time'],
-        $status,
-        $_POST['schedule_id']
-    );
-    if ($stmt->execute()) {
-        echo "<script>alert('Schedule updated successfully!'); window.location.href=window.location.pathname;</script>";
-        exit();
-    } else {
-        echo "Error: " . $stmt->error;
+    try {
+        $stmt = $conn->prepare("
+            UPDATE schedules SET
+                faculty_id  = ?,
+                day_of_week = ?,
+                start_time  = ?,
+                end_time    = ?,
+                status      = ?
+            WHERE schedule_id = ?
+        ");
+        $status = in_array($_POST['status'], ['Active','Cancelled']) ? $_POST['status'] : 'Active';
+        if ($stmt->execute([
+            $_POST['faculty_id'],
+            $_POST['day_of_week'],
+            $_POST['start_time'],
+            $_POST['end_time'],
+            $status,
+            $_POST['schedule_id']
+        ])) {
+            echo "<script>alert('Schedule updated successfully!'); window.location.href=window.location.pathname;</script>";
+            exit();
+        }
+    } catch (PDOException $e) {
+        echo "Error: " . $e->getMessage();
     }
 }
 
 // ================================================================
 // GET ACTIVE TERM
 // ================================================================
-$activeTermRow = $conn->query("SELECT term_id, academic_year, semester FROM academic_terms WHERE is_active=1 LIMIT 1")->fetch_assoc();
+$activeTermRow = $conn->query("SELECT term_id, academic_year, semester FROM academic_terms WHERE is_active=TRUE LIMIT 1")->fetch();
 $active_term_id   = $activeTermRow['term_id']   ?? 0;
 $active_term_name = $activeTermRow ? $activeTermRow['academic_year'] . ' - ' . $activeTermRow['semester'] : 'No Active Term';
 
@@ -64,13 +65,15 @@ $filter_year       = $_GET['year'] ?? '';
 $where_parts = ["s.term_id = $active_term_id"];
 
 if ($filter_department && isset($departmentToPrograms[$filter_department])) {
-    $programs = $departmentToPrograms[$filter_department];
-    $escaped  = array_map(fn($p) => "'" . $conn->real_escape_string($p) . "'", $programs);
+    $escaped  = [];
+    foreach ($programs as $p) {
+        $escaped[] = $conn->quote($p);
+    }
     $where_parts[] = "sec.program IN (" . implode(',', $escaped) . ")";
 }
 
 if ($filter_year && in_array($filter_year, ['1','2','3','4'])) {
-    $where_parts[] = "sec.section_name REGEXP ' {$filter_year}[0-9]'";
+    $where_parts[] = "sec.section_name ~ '-{$filter_year}[0-9]'";
 }
 
 $where_sql = implode(' AND ', $where_parts);
@@ -91,21 +94,27 @@ $schedules_result = $conn->query("
     LEFT JOIN rooms r ON s.room_id = r.room_id
     WHERE $where_sql
     ORDER BY
-        FIELD(s.day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'),
+        CASE s.day_of_week 
+            WHEN 'Monday' THEN 1 
+            WHEN 'Tuesday' THEN 2 
+            WHEN 'Wednesday' THEN 3 
+            WHEN 'Thursday' THEN 4 
+            WHEN 'Friday' THEN 5 
+            WHEN 'Saturday' THEN 6 
+            ELSE 7 
+        END,
         s.start_time
-");
+")->fetchAll();
 
 $schedule_data = [];
 $all_schedules = [];
-if ($schedules_result && $schedules_result->num_rows > 0) {
-    while ($row = $schedules_result->fetch_assoc()) {
+if (!empty($schedules_result)) {
+    foreach ($schedules_result as $row) {
         if (empty($row['room_name'])) {
             $rq = $conn->prepare("SELECT r.room_name FROM room_assignments ra JOIN rooms r ON ra.room_id=r.room_id WHERE ra.section_id=? LIMIT 1");
-            $rq->bind_param("i", $row['section_id']);
-            $rq->execute();
-            $rr = $rq->get_result();
-            $row['room_name'] = $rr && $rr->num_rows > 0 ? $rr->fetch_assoc()['room_name'] : '(No Assigned Room)';
-            $rq->close();
+            $rq->execute([$row['section_id']]);
+            $rd = $rq->fetch();
+            $row['room_name'] = $rd ? $rd['room_name'] : '(No Assigned Room)';
         }
         $day  = $row['day_of_week'];
         $time = date("H:i", strtotime($row['start_time']));
@@ -142,9 +151,7 @@ $days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 // ================================================================
 // FACULTY LIST (for edit modal)
 // ================================================================
-$faculty_list = [];
-$fac_res = $conn->query("SELECT * FROM faculty WHERE status='Active' ORDER BY last_name");
-if ($fac_res) while ($f = $fac_res->fetch_assoc()) $faculty_list[] = $f;
+$faculty_list = $conn->query("SELECT * FROM faculty WHERE status='Active' ORDER BY last_name")->fetchAll();
 
 $active_tab = $_GET['tab'] ?? 'grid';
 

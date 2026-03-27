@@ -23,9 +23,9 @@ $faculty_loads = $conn->query("
     FROM faculty f
     LEFT JOIN schedules s ON f.faculty_id = s.faculty_id 
         AND s.status = 'Active'
-        AND s.term_id = (SELECT term_id FROM academic_terms WHERE is_active = 1 LIMIT 1)
+        AND s.term_id = (SELECT term_id FROM academic_terms WHERE is_active = TRUE LIMIT 1)
     LEFT JOIN subjects sub ON s.subject_id = sub.subject_id
-    GROUP BY f.faculty_id
+    GROUP BY f.faculty_id, f.faculty_code, f.first_name, f.last_name, f.department, f.email, f.phone, f.job_type, f.total_units, f.status
     ORDER BY f.department, f.last_name, f.first_name
 ");
 
@@ -52,15 +52,15 @@ $stats = $conn->query("
         FROM schedules s
         JOIN subjects sub ON s.subject_id = sub.subject_id
         WHERE s.status = 'Active'
-          AND s.term_id = (SELECT term_id FROM academic_terms WHERE is_active = 1 LIMIT 1)
+          AND s.term_id = (SELECT term_id FROM academic_terms WHERE is_active = TRUE LIMIT 1)
         GROUP BY s.faculty_id
     ) assigned ON f.faculty_id = assigned.faculty_id
-")->fetch_assoc();
+")->fetch();
 
 // ================================================================
 // GET ACTIVE TERM NAME
 // ================================================================
-$activeTerm = $conn->query("SELECT academic_year, semester FROM academic_terms WHERE is_active=1 LIMIT 1")->fetch_assoc();
+$activeTerm = $conn->query("SELECT academic_year, semester FROM academic_terms WHERE is_active=TRUE LIMIT 1")->fetch();
 $term_label = $activeTerm ? $activeTerm['semester'] . ' (' . $activeTerm['academic_year'] . ')' : 'No Active Term';
 
 // ================================================================
@@ -70,7 +70,7 @@ $filter_dept = $_GET['department'] ?? '';
 
 // Re-fetch with filter if needed
 if ($filter_dept) {
-    $faculty_loads = $conn->query("
+    $stmt = $conn->prepare("
         SELECT 
             f.faculty_id,
             f.faculty_code,
@@ -87,18 +87,20 @@ if ($filter_dept) {
         FROM faculty f
         LEFT JOIN schedules s ON f.faculty_id = s.faculty_id 
             AND s.status = 'Active'
-            AND s.term_id = (SELECT term_id FROM academic_terms WHERE is_active = 1 LIMIT 1)
+            AND s.term_id = (SELECT term_id FROM academic_terms WHERE is_active = TRUE LIMIT 1)
         LEFT JOIN subjects sub ON s.subject_id = sub.subject_id
-        WHERE f.department = '" . $conn->real_escape_string($filter_dept) . "'
-        GROUP BY f.faculty_id
+        WHERE f.department = ?
+        GROUP BY f.faculty_id, f.faculty_code, f.first_name, f.last_name, f.department, f.email, f.phone, f.job_type, f.total_units, f.status
         ORDER BY f.last_name, f.first_name
     ");
+    $stmt->execute([$filter_dept]);
+    $faculty_loads = $stmt;
 }
 
 // Collect rows into array
 $faculty_rows = [];
 if ($faculty_loads) {
-    while ($row = $faculty_loads->fetch_assoc()) {
+    while ($row = $faculty_loads->fetch()) {
         $faculty_rows[] = $row;
     }
 }
@@ -324,9 +326,9 @@ if ($faculty_loads) {
 <script>
 const facultyScheduleData = <?php
     $sched_map = [];
-    $active_term_id = $activeTerm
-        ? $conn->query("SELECT term_id FROM academic_terms WHERE is_active=1 LIMIT 1")->fetch_assoc()['term_id']
-        : 0;
+    $active_term_res = $conn->query("SELECT term_id FROM academic_terms WHERE is_active=TRUE LIMIT 1");
+    $active_term_id = $active_term_res ? $active_term_res->fetchColumn() : 0;
+    
     $all_scheds = $conn->query("
         SELECT s.faculty_id, s.day_of_week, s.start_time, s.end_time,
                sub.subject_name, sub.subject_code,
@@ -335,10 +337,18 @@ const facultyScheduleData = <?php
         JOIN subjects sub ON s.subject_id = sub.subject_id
         JOIN sections sec ON s.section_id = sec.section_id
         WHERE s.status = 'Active' AND s.term_id = $active_term_id
-        ORDER BY FIELD(s.day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'), s.start_time
+        ORDER BY 
+            CASE s.day_of_week 
+                WHEN 'Monday' THEN 1 
+                WHEN 'Tuesday' THEN 2 
+                WHEN 'Wednesday' THEN 3 
+                WHEN 'Thursday' THEN 4 
+                WHEN 'Friday' THEN 5 
+                WHEN 'Saturday' THEN 6 
+            END, s.start_time
     ");
     if ($all_scheds) {
-        while ($sr = $all_scheds->fetch_assoc()) {
+        while ($sr = $all_scheds->fetch()) {
             $sched_map[$sr['faculty_id']][] = $sr;
         }
     }
