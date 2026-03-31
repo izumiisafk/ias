@@ -15,9 +15,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_schedule'])) {
         die("No active term found. Please set an active term in the academic_terms table first.");
     }
 
-    $term_id  = $termData['term_id'];
+    $term_id    = $termData['term_id'];
     $section_id = $_POST['section_id'];
-    $room_id = null;
+    $room_id    = null;
 
     $roomQuery = $conn->prepare("
         SELECT r.room_id
@@ -59,7 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_schedule'])) {
 /* =================================================
    HANDLE EDIT
 ================================================= */
-if(isset($_POST['edit_schedule'])){
+if (isset($_POST['edit_schedule'])) {
     try {
         $stmt = $conn->prepare("
             UPDATE schedules SET 
@@ -74,7 +74,6 @@ if(isset($_POST['edit_schedule'])){
         if (!in_array($status, ['Active','Cancelled'])) {
             $status = 'Active';
         }
-
         if ($stmt->execute([
             $_POST['faculty_id'],
             $_POST['day_of_week'],
@@ -91,7 +90,10 @@ if(isset($_POST['edit_schedule'])){
     }
 }
 
-if(isset($_POST['delete_schedule'])){
+/* =================================================
+   HANDLE DELETE
+================================================= */
+if (isset($_POST['delete_schedule'])) {
     $schedule_id = intval($_POST['schedule_id']);
     try {
         $stmt = $conn->prepare("DELETE FROM schedules WHERE schedule_id=?");
@@ -137,10 +139,10 @@ $departmentLabels = [
 $filter_department = $_GET['department'] ?? '';
 $filter_year       = $_GET['year'] ?? '';
 
-// Build WHERE clause
 $where_parts = ["s.term_id = $active_term_id"];
 
 if ($filter_department && isset($departmentToPrograms[$filter_department])) {
+    $programs = $departmentToPrograms[$filter_department];
     $escaped  = [];
     foreach ($programs as $p) {
         $escaped[] = $conn->quote($p);
@@ -149,8 +151,7 @@ if ($filter_department && isset($departmentToPrograms[$filter_department])) {
 }
 
 if ($filter_year && in_array($filter_year, ['1','2','3','4'])) {
-   // Section names encode year as first digit after the dash, e.g. BSIT-1A, BSCRIM-2B
-   $where_parts[] = "sec.section_name ~ '-{$filter_year}[0-9]'";
+    $where_parts[] = "sec.section_name LIKE '% {$filter_year}%'";
 }
 
 $where_sql = implode(' AND ', $where_parts);
@@ -172,12 +173,12 @@ $schedules_result = $conn->query("
     WHERE $where_sql
     ORDER BY 
         CASE s.day_of_week 
-            WHEN 'Monday' THEN 1 
-            WHEN 'Tuesday' THEN 2 
+            WHEN 'Monday'    THEN 1 
+            WHEN 'Tuesday'   THEN 2 
             WHEN 'Wednesday' THEN 3 
-            WHEN 'Thursday' THEN 4 
-            WHEN 'Friday' THEN 5 
-            WHEN 'Saturday' THEN 6 
+            WHEN 'Thursday'  THEN 4 
+            WHEN 'Friday'    THEN 5 
+            WHEN 'Saturday'  THEN 6 
             ELSE 7 
         END,
         s.start_time
@@ -197,13 +198,8 @@ if (!empty($schedules_result)) {
             ");
             $roomQuery->execute([$row['section_id']]);
             $roomData = $roomQuery->fetch();
-            if ($roomData) {
-                $row['room_name'] = $roomData['room_name'];
-            } else {
-                $row['room_name'] = '(No Assigned Room Yet)';
-            }
+            $row['room_name'] = $roomData ? $roomData['room_name'] : '(No Assigned Room Yet)';
         }
-
         $day  = $row['day_of_week'];
         $time = date("H:i", strtotime($row['start_time']));
         $schedule_data[$day][$time][] = $row;
@@ -238,7 +234,7 @@ $days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 /* =================================================
    DROPDOWNS
 ================================================= */
-$faculty_list = $conn->query("SELECT * FROM faculty WHERE status='Active' ORDER BY last_name")->fetchAll();
+$faculty_list  = $conn->query("SELECT * FROM faculty WHERE status='Active' ORDER BY last_name")->fetchAll();
 $sections_list = $conn->query("
     SELECT sec.section_id, sec.section_name, sec.program, r.room_code
     FROM sections sec
@@ -251,7 +247,6 @@ $all_subs = $conn->query("SELECT * FROM subjects WHERE status='Active'")->fetchA
 
 $active_tab = $_GET['tab'] ?? 'grid';
 
-// Build filter query string for tab links
 function build_filter_qs($extra = []) {
     global $filter_department, $filter_year;
     $params = [];
@@ -280,7 +275,6 @@ function build_filter_qs($extra = []) {
     <div class="content-card mb-4">
         <form method="GET" class="d-flex align-items-center gap-3 flex-wrap">
             <input type="hidden" name="tab" value="<?= htmlspecialchars($active_tab) ?>">
-
             <label class="form-label mb-0" style="white-space:nowrap;">
                 <i class="bi bi-building me-1"></i>Department:
             </label>
@@ -292,7 +286,6 @@ function build_filter_qs($extra = []) {
                     </option>
                 <?php endforeach; ?>
             </select>
-
             <label class="form-label mb-0" style="white-space:nowrap;">
                 <i class="bi bi-mortarboard me-1"></i>Year Level:
             </label>
@@ -303,14 +296,10 @@ function build_filter_qs($extra = []) {
                 <option value="3" <?= $filter_year === '3' ? 'selected' : '' ?>>3rd Year</option>
                 <option value="4" <?= $filter_year === '4' ? 'selected' : '' ?>>4th Year</option>
             </select>
-
             <?php if ($filter_department || $filter_year): ?>
                 <a href="schedules.php?tab=<?= htmlspecialchars($active_tab) ?>" class="btn-secondary-custom">
                     <i class="bi bi-x-lg me-1"></i>Clear Filters
                 </a>
-            <?php endif; ?>
-
-            <?php if ($filter_department || $filter_year): ?>
                 <span class="filter-active-badge">
                     <?php
                     $badge_parts = [];
@@ -337,7 +326,7 @@ function build_filter_qs($extra = []) {
         </div>
     </div>
 
-<?php if($active_tab === 'grid'): ?>
+<?php if ($active_tab === 'grid'): ?>
 <div class="content-card mb-4">
     <div class="d-flex align-items-center justify-content-between mb-3">
         <h5 style="color:var(--text-primary); font-weight:700; font-family:var(--font-display); margin:0;">
@@ -345,8 +334,7 @@ function build_filter_qs($extra = []) {
             Timetable Grid
             <?php if ($filter_department || $filter_year): ?>
                 <span style="color:var(--accent); font-size:13px; font-weight:500;">
-                    — 
-                    <?php
+                    — <?php
                     $parts = [];
                     if ($filter_department) $parts[] = $departmentLabels[$filter_department] ?? $filter_department;
                     if ($filter_year)       $parts[] = $filter_year . ($filter_year==1?'st':($filter_year==2?'nd':($filter_year==3?'rd':'th'))) . ' Year';
@@ -361,9 +349,7 @@ function build_filter_qs($extra = []) {
             <thead>
                 <tr>
                     <th class="time-col">Time</th>
-                    <?php foreach ($days as $day): ?>
-                        <th><?= $day ?></th>
-                    <?php endforeach; ?>
+                    <?php foreach ($days as $day): ?><th><?= $day ?></th><?php endforeach; ?>
                 </tr>
             </thead>
             <tbody>
@@ -378,10 +364,7 @@ function build_filter_qs($extra = []) {
                                 <div class="tb-subject"><?= htmlspecialchars($sc['subject_code'] ?? $sc['subject_name']) ?></div>
                                 <div class="tb-section"><?= htmlspecialchars($sc['section_name']) ?></div>
                                 <div class="tb-info"><i class="bi bi-person-fill"></i> <?= htmlspecialchars($sc['first_name'].' '.$sc['last_name']) ?></div>
-                                <div class="tb-info">
-                                    <i class="bi bi-door-open-fill"></i> 
-                                    <?= htmlspecialchars($sc['room_name'] ?? '(No Assigned Room Yet)') ?>
-                                </div>
+                                <div class="tb-info"><i class="bi bi-door-open-fill"></i> <?= htmlspecialchars($sc['room_name'] ?? '(No Assigned Room Yet)') ?></div>
                                 <div class="tb-time"><?= date("h:i A", strtotime($sc['start_time'])) ?> - <?= date("h:i A", strtotime($sc['end_time'])) ?></div>
                             </div>
                             <?php endforeach; ?>
@@ -395,14 +378,13 @@ function build_filter_qs($extra = []) {
     </div>
 </div>
 
-<?php elseif($active_tab === 'list'): ?>
+<?php elseif ($active_tab === 'list'): ?>
 <div class="content-card">
     <h5 class="mb-3" style="color:var(--text-primary); font-weight:700; font-family:var(--font-display);">
         <i class="bi bi-list-ul me-2" style="color:var(--accent);"></i>Schedule List
         <?php if ($filter_department || $filter_year): ?>
             <span style="color:var(--accent); font-size:13px; font-weight:500;">
-                — 
-                <?php
+                — <?php
                 $parts = [];
                 if ($filter_department) $parts[] = $departmentLabels[$filter_department] ?? $filter_department;
                 if ($filter_year)       $parts[] = $filter_year . ($filter_year==1?'st':($filter_year==2?'nd':($filter_year==3?'rd':'th'))) . ' Year';
@@ -415,15 +397,8 @@ function build_filter_qs($extra = []) {
         <table class="custom-table">
             <thead>
                 <tr>
-                    <th>Section</th>
-                    <th>Subject</th>
-                    <th>Faculty</th>
-                    <th>Room</th>
-                    <th>Day</th>
-                    <th>Start</th>
-                    <th>End</th>
-                    <th>Status</th>
-                    <th>Actions</th>
+                    <th>Section</th><th>Subject</th><th>Faculty</th><th>Room</th>
+                    <th>Day</th><th>Start</th><th>End</th><th>Status</th><th>Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -526,7 +501,7 @@ function build_filter_qs($extra = []) {
                             <label class="form-label">Start Time</label>
                             <select name="start_time" id="add_start_time" class="form-select" required>
                                 <option value="">Select Start Time</option>
-                                <?php foreach($time_options as $val => $label): ?>
+                                <?php foreach ($time_options as $val => $label): ?>
                                     <option value="<?= $val ?>"><?= $label ?></option>
                                 <?php endforeach; ?>
                             </select>
@@ -534,11 +509,9 @@ function build_filter_qs($extra = []) {
                         <div class="col-md-4 mb-3">
                             <label class="form-label">End Time</label>
                             <select name="end_time" id="add_end_time" class="form-select" required>
-                                <option value="">Select End Time</option>
-                                <?php foreach($time_options as $val => $label): ?>
-                                    <option value="<?= $val ?>"><?= $label ?></option>
-                                <?php endforeach; ?>
+                                <option value="">— Select Start Time first —</option>
                             </select>
+                            <small class="text-muted" id="add_end_hint"></small>
                         </div>
                     </div>
                 </div>
@@ -574,6 +547,7 @@ function build_filter_qs($extra = []) {
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Subject</label>
                             <input type="text" id="edit_subject_display" class="form-control" readonly>
+                            <input type="hidden" id="edit_subject_units" value="3">
                         </div>
                     </div>
                     <div class="row">
@@ -608,7 +582,7 @@ function build_filter_qs($extra = []) {
                             <label class="form-label">Start Time</label>
                             <select name="start_time" id="edit_start_time" class="form-select" required>
                                 <option value="">Select Start Time</option>
-                                <?php foreach($time_options as $val => $label): ?>
+                                <?php foreach ($time_options as $val => $label): ?>
                                     <option value="<?= $val ?>"><?= $label ?></option>
                                 <?php endforeach; ?>
                             </select>
@@ -616,11 +590,9 @@ function build_filter_qs($extra = []) {
                         <div class="col-md-4 mb-3">
                             <label class="form-label">End Time</label>
                             <select name="end_time" id="edit_end_time" class="form-select" required>
-                                <option value="">Select End Time</option>
-                                <?php foreach($time_options as $val => $label): ?>
-                                    <option value="<?= $val ?>"><?= $label ?></option>
-                                <?php endforeach; ?>
+                                <option value="">Auto-set by start time</option>
                             </select>
+                            <small class="text-muted" id="edit_end_hint"></small>
                         </div>
                     </div>
                 </div>
@@ -652,7 +624,6 @@ const programToSubjectPrefix = {
     'BSCRIM': 'BSCR',
     'BSCE':   'BSCE'
 };
-
 const programToDepartment = {
     'BSIT':   'College of Computer Studies (CCS)',
     'BSTM':   'College of Hospitality and Tourism Management (CHTM)',
@@ -660,7 +631,6 @@ const programToDepartment = {
     'BSCRIM': 'College of Criminal Justice Education (CCJE)',
     'BSCE':   'College of Engineering (COE)'
 };
-
 const programToShortDept = {
     'BSIT':   'CCS Department',
     'BSTM':   'CHTM Department',
@@ -669,19 +639,92 @@ const programToShortDept = {
     'BSCE':   'COE Department'
 };
 
+// ── Tracks selected subject units for each modal ──
+let addSelectedUnits = 3;  // default
+let editSelectedUnits = 3; // default
+
+// ── Format minutes into HH:MM ──
+function minsToVal(total) {
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
+
+// ── Format HH:MM to 12hr display ──
+function fmt12(val) {
+    const [h24, m] = val.split(':').map(Number);
+    const ampm = h24 >= 12 ? 'PM' : 'AM';
+    const h12  = h24 % 12 || 12;
+    return h12 + ':' + String(m).padStart(2, '0') + ' ' + ampm;
+}
+
+/**
+ * Set the end time dropdown based on start time + subject units.
+ * Auto-selects the calculated end time. No units text shown.
+ * @param {string} startVal  - HH:MM value
+ * @param {string} endId     - end time select element ID
+ * @param {string} hintId    - small hint element ID
+ * @param {number} units     - subject units (2 or 3)
+ * @param {string} currentEndVal - pre-select this value if set (edit mode)
+ */
+function setEndTime(startVal, endId, hintId, units, currentEndVal) {
+    const endSel  = document.getElementById(endId);
+    const hintEl  = document.getElementById(hintId);
+
+    endSel.innerHTML = '';
+
+    if (!startVal) {
+        endSel.innerHTML = '<option value="">— Select Start Time first —</option>';
+        if (hintEl) hintEl.textContent = '';
+        return;
+    }
+
+    const [startH, startM] = startVal.split(':').map(Number);
+    const startTotal = startH * 60 + startM;
+
+    // End time = start + (units × 60 minutes)
+    // Each unit = 1 hour, so 3 units = 3 hours
+    const endTotal = startTotal + (units * 60);
+    const endH     = Math.floor(endTotal / 60);
+    const endM     = endTotal % 60;
+
+    // Check operating hours limit (max 21:00)
+    if (endH > 21 || (endH === 21 && endM > 0)) {
+        endSel.innerHTML = '<option value="">Start time too late for ' + units + '-unit subject</option>';
+        if (hintEl) {
+            hintEl.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1" style="color:#f59e0b;"></i>Choose an earlier start time.';
+        }
+        return;
+    }
+
+    const endVal = minsToVal(endTotal);
+
+    const opt       = document.createElement('option');
+    opt.value       = endVal;
+    opt.textContent = fmt12(endVal);
+    opt.selected    = true;
+    endSel.appendChild(opt);
+
+    if (hintEl) {
+        hintEl.innerHTML = '<i class="bi bi-clock-fill me-1" style="color:var(--accent);"></i>' +
+            'Auto-set: <strong>' + fmt12(startVal) + '</strong> → <strong>' + fmt12(endVal) + '</strong> (' + units + ' units)';
+    }
+}
+
+// ── FACULTY DROPDOWN ──
 function populateFacultyDropdown(selectEl, hintEl, program, selectedFacultyId) {
     selectEl.innerHTML = '';
     hintEl.textContent = '';
     const department = programToDepartment[program] ?? '';
     const shortDept  = programToShortDept[program]  ?? '';
-    const emptyOpt = document.createElement('option');
-    emptyOpt.value = '';
+    const emptyOpt   = document.createElement('option');
+    emptyOpt.value   = '';
     emptyOpt.textContent = '— Select Faculty —';
     selectEl.appendChild(emptyOpt);
     let count = 0;
     allFaculty.forEach(fac => {
         if (fac.department.trim() === department.trim()) {
-            const opt = document.createElement('option');
+            const opt       = document.createElement('option');
             opt.value       = fac.faculty_id;
             opt.textContent = fac.last_name + ', ' + fac.first_name;
             if (String(fac.faculty_id) === String(selectedFacultyId)) opt.selected = true;
@@ -690,89 +733,126 @@ function populateFacultyDropdown(selectEl, hintEl, program, selectedFacultyId) {
         }
     });
     if (count > 0) {
-        hintEl.innerHTML = '<i class="bi bi-funnel-fill me-1"></i>Showing <strong>' + count + '</strong> faculty from <strong>' + shortDept + '</strong>';
+        hintEl.innerHTML = '<i class="bi bi-funnel-fill me-1"></i>Showing <strong>' + count +
+            '</strong> faculty from <strong>' + shortDept + '</strong>';
     } else {
         hintEl.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1" style="color:#f59e0b;"></i>No active faculty found in ' + shortDept;
     }
 }
 
+// ── SUBJECT DROPDOWN ──
 function populateSubjectDropdown(selectEl, program, sectionCode) {
     selectEl.innerHTML = '<option value="">Select Subject</option>';
-    const digits  = sectionCode.replace(/[^0-9]/g, '');
-    const yearNum = digits[0] ?? '';
-    const semNum  = digits[1] ?? '';
-    const yearMap = { '1': '1st Year', '2': '2nd Year', '3': '3rd Year', '4': '4th Year' };
-    const semMap  = { '1': '1st Sem',  '2': '2nd Sem' };
+    const digits   = sectionCode.replace(/[^0-9]/g, '');
+    const yearNum  = digits[0] ?? '';
+    const semNum   = digits[1] ?? '';
+    const yearMap  = { '1': '1st Year', '2': '2nd Year', '3': '3rd Year', '4': '4th Year' };
+    const semMap   = { '1': '1st Sem',  '2': '2nd Sem' };
     const yearText = yearMap[yearNum] ?? '';
     const semText  = semMap[semNum]  ?? '';
     const prefix   = programToSubjectPrefix[program] ?? program;
     let count = 0;
     allSubjects.forEach(sub => {
-        if (sub.subject_code.startsWith(prefix) && sub.year_level.includes(yearText) && sub.year_level.includes(semText)) {
-            const opt = document.createElement('option');
+        if (sub.subject_code.startsWith(prefix) &&
+            sub.year_level.includes(yearText) &&
+            sub.year_level.includes(semText)) {
+            const opt       = document.createElement('option');
             opt.value       = sub.subject_id;
             opt.textContent = sub.subject_name;
+            opt.dataset.units = sub.units ?? 3;
             selectEl.appendChild(opt);
             count++;
         }
     });
-    if (count === 0) selectEl.innerHTML = '<option value="">No subjects found for this section</option>';
+    if (count === 0) {
+        selectEl.innerHTML = '<option value="">No subjects found for this section</option>';
+    }
 }
 
+// ── ADD MODAL: section change → populate subjects + faculty ──
 const addSectionSel  = document.getElementById('add_section_id');
 const addSubjectSel  = document.getElementById('add_subject_id');
 const addFacultySel  = document.getElementById('add_faculty_id');
 const addFacultyHint = document.getElementById('add_faculty_hint');
+const addStartSel    = document.getElementById('add_start_time');
+const addEndSel      = document.getElementById('add_end_time');
 
 addSectionSel.addEventListener('change', function () {
     const opt      = this.options[this.selectedIndex];
     const program  = opt.dataset.program ?? '';
     const secLabel = opt.textContent.trim().split(' / ')[0].trim();
+
     addSubjectSel.innerHTML = '<option value="">Select Subject</option>';
     addFacultySel.innerHTML = '<option value="">Select Faculty</option>';
     addFacultyHint.textContent = '';
+    addEndSel.innerHTML = '<option value="">— Select Start Time first —</option>';
+    document.getElementById('add_end_hint').textContent = '';
+    addSelectedUnits = 3;
+
     if (!program) return;
     populateSubjectDropdown(addSubjectSel, program, secLabel);
     populateFacultyDropdown(addFacultySel, addFacultyHint, program, '');
 });
 
+// ADD MODAL: subject change → update units + recalculate end time
+addSubjectSel.addEventListener('change', function () {
+    const opt = this.options[this.selectedIndex];
+    addSelectedUnits = parseInt(opt.dataset.units) || 3;
+    // Recalculate end time if start time already selected
+    if (addStartSel.value) {
+        setEndTime(addStartSel.value, 'add_end_time', 'add_end_hint', addSelectedUnits, '');
+    }
+});
+
+// ADD MODAL: start time change → auto-set end time based on subject units
+addStartSel.addEventListener('change', function () {
+    setEndTime(this.value, 'add_end_time', 'add_end_hint', addSelectedUnits, '');
+});
+
+// EDIT MODAL: start time change → recalculate end time based on stored subject units
+document.getElementById('edit_start_time').addEventListener('change', function () {
+    setEndTime(this.value, 'edit_end_time', 'edit_end_hint', editSelectedUnits, '');
+});
+
+// ── OPEN EDIT MODAL ──
 function openEditSchedule(data) {
-    document.getElementById('edit_schedule_id').value  = data.schedule_id;
+    document.getElementById('edit_schedule_id').value     = data.schedule_id;
     document.getElementById('edit_section_display').value = data.section_name + ' / ' + (data.room_name ?? '(No Assigned Room Yet)');
     document.getElementById('edit_subject_display').value = data.subject_name;
-    document.getElementById('edit_status').value       = data.status;
-    document.getElementById('edit_day_of_week').value  = data.day_of_week;
-    document.getElementById('edit_start_time').value   = data.start_time;
-    document.getElementById('edit_end_time').value     = data.end_time;
-    const program = data.program ?? '';
+    document.getElementById('edit_status').value          = data.status;
+    document.getElementById('edit_day_of_week').value     = data.day_of_week;
+
+    // Get subject units from allSubjects array
+    const subjectMatch = allSubjects.find(s => String(s.subject_id) === String(data.subject_id));
+    editSelectedUnits  = subjectMatch ? (parseInt(subjectMatch.units) || 3) : 3;
+    document.getElementById('edit_subject_units').value = editSelectedUnits;
+
+    // Set start time first, then auto-calculate end time
+    const startVal = data.start_time ? data.start_time.substring(0, 5) : '';
+    document.getElementById('edit_start_time').value = startVal;
+
+    // Auto-set end time based on subject units (pre-select the stored end time)
+    const storedEnd = data.end_time ? data.end_time.substring(0, 5) : '';
+    setEndTime(startVal, 'edit_end_time', 'edit_end_hint', editSelectedUnits, storedEnd);
+
+    // Populate faculty
     populateFacultyDropdown(
         document.getElementById('edit_faculty_id'),
         document.getElementById('edit_faculty_hint'),
-        program,
+        data.program ?? '',
         data.faculty_id
     );
+
     new bootstrap.Modal(document.getElementById('editScheduleModal')).show();
 }
 
+// ── DELETE ──
 function confirmDeleteSchedule(id) {
     if (confirm('Are you sure you want to delete this schedule?')) {
         document.getElementById('delete_schedule_id').value = id;
         document.getElementById('deleteScheduleForm').submit();
     }
 }
-
-function filterEndTimes(startId, endId) {
-    document.getElementById(startId).addEventListener('change', function () {
-        const endSel = document.getElementById(endId);
-        for (let opt of endSel.options) {
-            if (!opt.value) continue;
-            opt.disabled = opt.value <= this.value;
-        }
-        if (endSel.value && endSel.value <= this.value) endSel.value = '';
-    });
-}
-filterEndTimes('add_start_time', 'add_end_time');
-filterEndTimes('edit_start_time', 'edit_end_time');
 </script>
 
 <style>
@@ -803,6 +883,7 @@ filterEndTimes('edit_start_time', 'edit_end_time');
 .schedule-tab.active { background:var(--accent); color:#fff; }
 .custom-table td .btn-icon { margin:0 2px; }
 .custom-table td:last-child { text-align:center; }
+.badge-cancelled { background:rgba(239,68,68,0.12); color:#ef4444; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600; }
 </style>
 
 <?php include '../includes/footer.php'; ?>

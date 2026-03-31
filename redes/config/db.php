@@ -12,7 +12,7 @@ $username = getenv('DB_USER') ?: 'postgres.pnbrkfpqrigmsluzhbff';
 $password = getenv('DB_PASSWORD') ?: '';
 
 try {
-    $dsn = "pgsql:host=$host;port=$port;dbname=$dbname;sslmode=require";
+    $dsn = "pgsql:host=$host;port=$port;dbname=$dbname";
     $options = [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
@@ -20,6 +20,7 @@ try {
         PDO::ATTR_TIMEOUT            => 2,    // Connection timeout (reduced for speed)
     ];
     $conn = new PDO($dsn, $username, $password, $options);
+    $conn->exec('SET search_path TO "Registrar", public');
 } catch (PDOException $e) {
     $db_error = $e->getMessage();
 }

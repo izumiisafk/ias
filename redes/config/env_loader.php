@@ -24,6 +24,8 @@ function loadEnv($path) {
     return true;
 }
 
-// Load .env from root
-loadEnv(__DIR__ . '/../../.env');
+// Load .env from redes directory OR project root
+if (!loadEnv(__DIR__ . '/../.env')) {
+    loadEnv(__DIR__ . '/../../.env');
+}
 ?>
