@@ -4,6 +4,13 @@ require_once '../config/db.php';
 $page_title = 'Faculty Load - Class Scheduling System';
 
 // ================================================================
+// GET ACTIVE TERM
+// ================================================================
+$activeTerm     = $conn->query("SELECT term_id, academic_year, semester FROM academic_terms WHERE is_active=TRUE LIMIT 1")->fetch();
+$active_term_id = $activeTerm ? $activeTerm['term_id'] : 0;
+$term_label     = $activeTerm ? $activeTerm['semester'] . ' (' . $activeTerm['academic_year'] . ')' : 'No Active Term';
+
+// ================================================================
 // FETCH FACULTY WITH THEIR SCHEDULE LOAD
 // ================================================================
 $faculty_loads = $conn->query("
@@ -23,14 +30,15 @@ $faculty_loads = $conn->query("
     FROM faculty f
     LEFT JOIN schedules s ON f.faculty_id = s.faculty_id 
         AND s.status = 'Active'
-        AND s.term_id = (SELECT term_id FROM academic_terms WHERE is_active = TRUE LIMIT 1)
+        AND s.term_id = $active_term_id
     LEFT JOIN subjects sub ON s.subject_id = sub.subject_id
-    GROUP BY f.faculty_id, f.faculty_code, f.first_name, f.last_name, f.department, f.email, f.phone, f.job_type, f.total_units, f.status
+    GROUP BY f.faculty_id, f.faculty_code, f.first_name, f.last_name,
+             f.department, f.email, f.phone, f.job_type, f.total_units, f.status
     ORDER BY f.department, f.last_name, f.first_name
 ");
 
 // ================================================================
-// SUMMARY STATS — based on total_units
+// SUMMARY STATS — compares assigned units against each faculty's total_units
 // ================================================================
 $stats = $conn->query("
     SELECT
@@ -52,23 +60,16 @@ $stats = $conn->query("
         FROM schedules s
         JOIN subjects sub ON s.subject_id = sub.subject_id
         WHERE s.status = 'Active'
-          AND s.term_id = (SELECT term_id FROM academic_terms WHERE is_active = TRUE LIMIT 1)
+          AND s.term_id = $active_term_id
         GROUP BY s.faculty_id
     ) assigned ON f.faculty_id = assigned.faculty_id
 ")->fetch();
-
-// ================================================================
-// GET ACTIVE TERM NAME
-// ================================================================
-$activeTerm = $conn->query("SELECT academic_year, semester FROM academic_terms WHERE is_active=TRUE LIMIT 1")->fetch();
-$term_label = $activeTerm ? $activeTerm['semester'] . ' (' . $activeTerm['academic_year'] . ')' : 'No Active Term';
 
 // ================================================================
 // FILTER BY DEPARTMENT
 // ================================================================
 $filter_dept = $_GET['department'] ?? '';
 
-// Re-fetch with filter if needed
 if ($filter_dept) {
     $stmt = $conn->prepare("
         SELECT 
@@ -87,13 +88,14 @@ if ($filter_dept) {
         FROM faculty f
         LEFT JOIN schedules s ON f.faculty_id = s.faculty_id 
             AND s.status = 'Active'
-            AND s.term_id = (SELECT term_id FROM academic_terms WHERE is_active = TRUE LIMIT 1)
+            AND s.term_id = ?
         LEFT JOIN subjects sub ON s.subject_id = sub.subject_id
         WHERE f.department = ?
-        GROUP BY f.faculty_id, f.faculty_code, f.first_name, f.last_name, f.department, f.email, f.phone, f.job_type, f.total_units, f.status
+        GROUP BY f.faculty_id, f.faculty_code, f.first_name, f.last_name,
+                 f.department, f.email, f.phone, f.job_type, f.total_units, f.status
         ORDER BY f.last_name, f.first_name
     ");
-    $stmt->execute([$filter_dept]);
+    $stmt->execute([$active_term_id, $filter_dept]);
     $faculty_loads = $stmt;
 }
 
@@ -102,6 +104,35 @@ $faculty_rows = [];
 if ($faculty_loads) {
     while ($row = $faculty_loads->fetch()) {
         $faculty_rows[] = $row;
+    }
+}
+
+// ================================================================
+// FETCH ALL SCHEDULES FOR MODAL VIEWER (includes subject units)
+// ================================================================
+$sched_map  = [];
+$all_scheds = $conn->query("
+    SELECT s.faculty_id, s.day_of_week, s.start_time, s.end_time,
+           sub.subject_name, sub.subject_code, sub.units,
+           sec.section_name
+    FROM schedules s
+    JOIN subjects sub ON s.subject_id = sub.subject_id
+    JOIN sections sec ON s.section_id = sec.section_id
+    WHERE s.status = 'Active' AND s.term_id = $active_term_id
+    ORDER BY 
+        CASE s.day_of_week 
+            WHEN 'Monday'    THEN 1 
+            WHEN 'Tuesday'   THEN 2 
+            WHEN 'Wednesday' THEN 3 
+            WHEN 'Thursday'  THEN 4 
+            WHEN 'Friday'    THEN 5 
+            WHEN 'Saturday'  THEN 6 
+            ELSE 7 
+        END, s.start_time
+");
+if ($all_scheds) {
+    while ($sr = $all_scheds->fetch()) {
+        $sched_map[$sr['faculty_id']][] = $sr;
     }
 }
 ?>
@@ -213,16 +244,19 @@ if ($faculty_loads) {
                     <?php else: ?>
                     <?php foreach ($faculty_rows as $row):
 
-                        // Total units is fixed by job type: Full-time=39, Part-time=18
-                        $job_type    = $row['job_type'] ?? 'Full-time';
-                        $max_units   = $job_type === 'Part-time' ? 18 : 39;
+                        $job_type = $row['job_type'] ?? 'Full-time';
+
+                        // Use actual stored total_units; fallback to job type default only if 0/missing
+                        $max_units = intval($row['total_units']) > 0
+                            ? intval($row['total_units'])
+                            : ($job_type === 'Part-time' ? 18 : 39);
 
                         // Units assigned = SUM of subject units (integer, no decimals)
-                        $assigned    = intval($row['total_units_assigned']);
-                        $pct         = $max_units > 0 ? min(($assigned / $max_units) * 100, 100) : 0;
+                        $assigned = intval($row['total_units_assigned']);
+                        $pct      = $max_units > 0 ? min(($assigned / $max_units) * 100, 100) : 0;
 
                         // Determine load status
-                        if ($assigned == 0) {
+                        if ($assigned === 0) {
                             $load_status = 'No Load';
                             $load_class  = 'load-none';
                             $bar_color   = '#94a3b8';
@@ -257,7 +291,7 @@ if ($faculty_loads) {
                                 <span class="badge-parttime">Part-time</span>
                             <?php endif; ?>
                         </td>
-                        <td style="text-align:center; font-weight:700;"><?= $row['total_schedules'] ?></td>
+                        <td style="text-align:center; font-weight:700;"><?= intval($row['total_schedules']) ?></td>
                         <td style="text-align:center; font-weight:700; color:<?= $bar_color ?>;">
                             <?= $assigned ?> units
                         </td>
@@ -318,63 +352,46 @@ if ($faculty_loads) {
             <div class="modal-body" id="facultyScheduleBody">
                 <div class="text-center py-3">Loading...</div>
             </div>
+            <div class="modal-footer" id="facultyScheduleFooter" style="display:none;">
+                <div class="total-units-summary">
+                    <i class="bi bi-calculator me-1"></i>
+                    Total Units Assigned: <strong id="modalTotalUnits">0</strong>
+                </div>
+            </div>
         </div>
     </div>
 </div>
 
-<!-- FACULTY SCHEDULE DATA (JSON for modal) -->
 <script>
-const facultyScheduleData = <?php
-    $sched_map = [];
-    $active_term_res = $conn->query("SELECT term_id FROM academic_terms WHERE is_active=TRUE LIMIT 1");
-    $active_term_id = $active_term_res ? $active_term_res->fetchColumn() : 0;
-    
-    $all_scheds = $conn->query("
-        SELECT s.faculty_id, s.day_of_week, s.start_time, s.end_time,
-               sub.subject_name, sub.subject_code,
-               sec.section_name
-        FROM schedules s
-        JOIN subjects sub ON s.subject_id = sub.subject_id
-        JOIN sections sec ON s.section_id = sec.section_id
-        WHERE s.status = 'Active' AND s.term_id = $active_term_id
-        ORDER BY 
-            CASE s.day_of_week 
-                WHEN 'Monday' THEN 1 
-                WHEN 'Tuesday' THEN 2 
-                WHEN 'Wednesday' THEN 3 
-                WHEN 'Thursday' THEN 4 
-                WHEN 'Friday' THEN 5 
-                WHEN 'Saturday' THEN 6 
-            END, s.start_time
-    ");
-    if ($all_scheds) {
-        while ($sr = $all_scheds->fetch()) {
-            $sched_map[$sr['faculty_id']][] = $sr;
-        }
-    }
-    echo json_encode($sched_map);
-?>;
+const facultyScheduleData = <?= json_encode($sched_map) ?>;
 
 function viewFacultySchedule(facultyId, name) {
     document.getElementById('facultyScheduleTitle').innerHTML =
         '<i class="bi bi-calendar3 me-2"></i>' + name + ' — Schedule';
 
-    const scheds = facultyScheduleData[facultyId] ?? [];
-    let html = '';
+    const scheds    = facultyScheduleData[facultyId] ?? [];
+    const footer    = document.getElementById('facultyScheduleFooter');
+    let html        = '';
+    let totalUnits  = 0;
 
     if (scheds.length === 0) {
-        html = '<div class="text-center py-4 text-muted">No active schedules for this faculty this term.</div>';
+        html = '<div class="text-center py-4 text-muted">' +
+               '<i class="bi bi-calendar-x" style="font-size:32px; opacity:0.3;"></i>' +
+               '<p class="mt-2">No active schedules for this faculty this term.</p>' +
+               '</div>';
+        footer.style.display = 'none';
     } else {
-        html = '<div class="table-responsive"><table class="custom-table"><thead><tr>' +
-               '<th>Day</th><th>Subject</th><th>Section</th><th>Start</th><th>End</th><th>Duration</th>' +
+        html = '<div class="table-responsive">' +
+               '<table class="custom-table"><thead><tr>' +
+               '<th>Day</th><th>Subject</th><th>Section</th>' +
+               '<th>Start</th><th>End</th><th>Units</th>' +
                '</tr></thead><tbody>';
 
         scheds.forEach(s => {
             const start = s.start_time.substring(0, 5);
             const end   = s.end_time.substring(0, 5);
-            const startMin = parseInt(start.split(':')[0]) * 60 + parseInt(start.split(':')[1]);
-            const endMin   = parseInt(end.split(':')[0])   * 60 + parseInt(end.split(':')[1]);
-            const duration = ((endMin - startMin) / 60).toFixed(1) + ' hrs';
+            const units = parseInt(s.units) || 3;
+            totalUnits += units;
 
             const fmt = t => {
                 let [h, m] = t.split(':').map(Number);
@@ -389,11 +406,15 @@ function viewFacultySchedule(facultyId, name) {
                 '<td>' + s.section_name + '</td>' +
                 '<td>' + fmt(start) + '</td>' +
                 '<td>' + fmt(end)   + '</td>' +
-                '<td>' + duration   + '</td>' +
+                '<td><span class="units-max-badge">' + units + ' units</span></td>' +
                 '</tr>';
         });
 
         html += '</tbody></table></div>';
+
+        document.getElementById('modalTotalUnits').textContent = totalUnits + ' units';
+        footer.style.display = 'flex';
+        footer.style.justifyContent = 'flex-start';
     }
 
     document.getElementById('facultyScheduleBody').innerHTML = html;
@@ -435,11 +456,22 @@ function viewFacultySchedule(facultyId, name) {
     font-size: 11px; font-weight: 700; white-space: nowrap;
 }
 
-/* Max units display badge */
+/* Units badge */
 .units-max-badge {
     background: rgba(79,163,255,0.10); color: var(--accent);
     padding: 3px 10px; border-radius: 20px;
     font-size: 11px; font-weight: 700; white-space: nowrap;
+}
+
+/* Modal footer total units */
+.total-units-summary {
+    background: rgba(79,163,255,0.08);
+    border: 1px solid rgba(79,163,255,0.2);
+    color: var(--accent);
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
 }
 
 /* Stats card red variant */
