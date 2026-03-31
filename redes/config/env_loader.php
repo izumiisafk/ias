@@ -24,6 +24,8 @@ function loadEnv($path) {
     return true;
 }
 
-// Load .env from redes directory (one level up from config/)
-loadEnv(__DIR__ . '/../.env');      // ← points to redes/ (correct!)
+// Load .env from redes directory OR project root
+if (!loadEnv(__DIR__ . '/../.env')) {
+    loadEnv(__DIR__ . '/../../.env');
+}
 ?>

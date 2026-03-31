@@ -20,6 +20,7 @@ try {
         PDO::ATTR_TIMEOUT            => 2,    // Connection timeout (reduced for speed)
     ];
     $conn = new PDO($dsn, $username, $password, $options);
+    $conn->exec('SET search_path TO "Registrar", public');
 } catch (PDOException $e) {
     $db_error = $e->getMessage();
 }
