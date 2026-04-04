@@ -11,8 +11,15 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link href="../assets/custom.css" rel="stylesheet">
     <!-- Supabase SDK & Client -->
+    <?php require_once __DIR__ . '/../config/supabase.php'; ?>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        // Inject Supabase credentials from environment
+        const SUPABASE_URL = '<?= SUPABASE_URL ?>';
+        const SUPABASE_KEY = '<?= SUPABASE_ANON_KEY ?>';
+    </script>
     <script src="../assets/js/supabase-client.js"></script>
+
     <style>
     body.light-mode {
         --color-bg: #f0f4f8;
