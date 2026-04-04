@@ -42,27 +42,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if ($row && password_verify($password, $row['password_hash'])) {
-                $_SESSION['logged_in'] = true;
+                // Instead of logging in immediately, generate an OTP
+                $otp_code = str_pad(rand(0, 999999), 6, '0', STR_PAD_LEFT);
+                $expires_at = date('Y-m-d H:i:s', strtotime('+5 minutes'));
                 
-                // Map 'administrator' to 'admin' for compatibility
-                $role = strtolower($row['role_name']);
-                if ($role === 'administrator') $role = 'admin';
-                
-                $_SESSION['role']      = $role;
-                $_SESSION['username']  = $row['email'];
-                $_SESSION['full_name'] = $row['full_name'];
-                $_SESSION['account_id'] = $row['id'];
-                $logged = true;
+                try {
+                    // Store OTP in user_otps_ums
+                    $stmt_otp = $conn->prepare("INSERT INTO public.user_otps_ums (user_id, otp_code, expires_at) VALUES (?, ?, ?)");
+                    $stmt_otp->execute([$row['id'], $otp_code, $expires_at]);
+                    
+                    // Send OTP via Resend
+                    require_once 'includes/resend_helper.php';
+                    $resend_result = sendOTP($row['email'], $otp_code);
+                    
+                    // Store temporary data in session
+                    $_SESSION['otp_user_id'] = $row['id'];
+                    $_SESSION['otp_email']   = $row['email'];
+                    $_SESSION['otp_full_name'] = $row['full_name'];
+                    $_SESSION['otp_role']      = strtolower($row['role_name']);
+                    if ($_SESSION['otp_role'] === 'administrator') $_SESSION['otp_role'] = 'admin';
+                    
+                    header('Location: otp_verify.php');
+                    exit();
+                } catch (Exception $e) {
+                    $error = "OTP Error: " . $e->getMessage();
+                }
             }
         } catch (PDOException $e) {
             $error = "Authentication Error: " . $e->getMessage();
         }
     }
 
-    if ($logged) {
-        header('Location: ' . ($_SESSION['role'] === 'admin' ? 'admin/dashboard.php' : 'registrar/dashboard.php'));
-        exit();
-    } elseif (empty($error)) {
+    if (empty($error) && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Invalid email or password.';
     }
 }
