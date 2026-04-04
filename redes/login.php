@@ -27,33 +27,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $logged = true;
     }
 
-    if (!$logged && empty($db_error)) {
-        // Search by both email OR username
-        $stmt = $conn->prepare("SELECT * FROM system_accounts WHERE (email=? OR username=?) AND status='Active' LIMIT 1");
-        if ($stmt) {
-            $stmt->execute([$username, $username]);
+    if (!$logged && isset($conn)) {
+        try {
+            // Search public.users_ums for email or student_employee_id
+            $stmt = $conn->prepare("
+                SELECT u.*, r.name as role_name 
+                FROM public.users_ums u 
+                JOIN public.roles_ums r ON u.role_id = r.id 
+                WHERE (u.email = :u OR u.student_employee_id = :u) 
+                AND u.status = 'active' 
+                LIMIT 1
+            ");
+            $stmt->execute(['u' => $username]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($row) {
-                // Check hashed password (standard) OR plain text (legacy/migration)
-                if (password_verify($password, $row['password']) || $password === $row['password']) {
-                    $_SESSION['logged_in'] = true;
-                    $_SESSION['role']      = $row['role'];
-                    $_SESSION['username']  = $row['username'];
-                    $_SESSION['full_name'] = $row['full_name'];
-                    $logged = true;
-                }
-            }
-        }
-    }
 
-    if (!empty($db_error)) {
-        $error = "Database Connection Error: " . $db_error . " (Check your .env file)";
+            if ($row && password_verify($password, $row['password_hash'])) {
+                $_SESSION['logged_in'] = true;
+                
+                // Map 'administrator' to 'admin' for compatibility
+                $role = strtolower($row['role_name']);
+                if ($role === 'administrator') $role = 'admin';
+                
+                $_SESSION['role']      = $role;
+                $_SESSION['username']  = $row['email'];
+                $_SESSION['full_name'] = $row['full_name'];
+                $_SESSION['account_id'] = $row['id'];
+                $logged = true;
+            }
+        } catch (PDOException $e) {
+            $error = "Authentication Error: " . $e->getMessage();
+        }
     }
 
     if ($logged) {
         header('Location: ' . ($_SESSION['role'] === 'admin' ? 'admin/dashboard.php' : 'registrar/dashboard.php'));
         exit();
-    } else {
+    } elseif (empty($error)) {
         $error = 'Invalid email or password.';
     }
 }
@@ -339,14 +348,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <h1>Welcome</h1>
         <p class="subtitle">Sign in to your account to continue.</p>
 
-        <?php if ($error): ?>
-        <div class="error-box">
-            <i class="bi bi-exclamation-circle-fill"></i>
-            <?= htmlspecialchars($error) ?>
-        </div>
-        <?php endif; ?>
-
-        <form method="POST" autocomplete="off">
+        <form method="POST">
+            <?php if ($error): ?>
+                <div class="error-box"><?= htmlspecialchars($error) ?></div>
+            <?php endif; ?>
+            
             <div class="field-group">
                 <label>Email</label>
                 <div class="field-wrap">
