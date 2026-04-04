@@ -13,6 +13,7 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
 }
 
 require_once 'config/db.php';
+require_once 'includes/activity_helper.php';
 $error = '';
 $success = '';
 
@@ -49,12 +50,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['full_name'] = $_SESSION['otp_full_name'];
                 $_SESSION['account_id'] = $_SESSION['otp_user_id'];
 
+                // Log OTP success
+                logActivity($user_id, 'login', '2FA OTP verified|' . $_SESSION['otp_email']);
+
                 // Clear temp session data
                 unset($_SESSION['otp_user_id'], $_SESSION['otp_email'], $_SESSION['otp_full_name'], $_SESSION['otp_role']);
 
                 header('Location: ' . ($_SESSION['role'] === 'admin' ? 'admin/dashboard.php' : 'registrar/dashboard.php'));
                 exit();
             } else {
+                // Log OTP failure
+                logActivity($user_id, 'login', 'Failed OTP verification|' . $_SESSION['otp_email']);
                 $error = "Invalid or expired verification code.";
             }
         } catch (PDOException $e) {

@@ -15,6 +15,7 @@ $hardcoded = [
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_once 'config/db.php';
+    require_once 'includes/activity_helper.php';
     $username = trim($_POST['username'] ?? '');
     $password = trim($_POST['password'] ?? '');
     $logged   = false;
@@ -25,6 +26,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['username']  = $username;
         $_SESSION['full_name'] = $hardcoded[$username]['full_name'];
         $logged = true;
+        
+        // Log hardcoded admin login
+        logActivity(null, 'login', 'Successful login (Hardcoded Admin)|' . $username);
     }
 
     if (!$logged && isset($conn)) {
@@ -42,6 +46,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if ($row && password_verify($password, $row['password_hash'])) {
+                // Log successful login (pre-OTP)
+                logActivity($row['id'], 'login', 'Successful login|' . $row['email']);
+
                 // Instead of logging in immediately, generate an OTP
                 $otp_code = str_pad(rand(0, 999999), 6, '0', STR_PAD_LEFT);
                 $expires_at = date('Y-m-d H:i:s', strtotime('+5 minutes'));
@@ -66,6 +73,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     exit();
                 } catch (Exception $e) {
                     $error = "OTP Error: " . $e->getMessage();
+                }
+            } else {
+                // Log failed attempt
+                if ($row) {
+                    logActivity($row['id'], 'login', 'Failed login attempt (bad password)|' . $row['email']);
+                } else {
+                    logActivity(null, 'login', 'Failed login attempt (user not found)|' . $username);
                 }
             }
         } catch (PDOException $e) {
