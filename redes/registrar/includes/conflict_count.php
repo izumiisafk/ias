@@ -132,6 +132,7 @@ if (!empty($_GET['rt_poll'])) {
     }
 
     // ── Load existing Unresolved from DB ──
+    $existing = [];
     $ex = $conn->query("
         SELECT conflict_id,
                LEAST(schedule_id_1,schedule_id_2)    AS sid_lo,
