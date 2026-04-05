@@ -1,0 +1,296 @@
+<?php
+if (session_status() === PHP_SESSION_NONE) session_start();
+
+// Redirect if not coming from login or already logged in
+if (!isset($_SESSION['otp_user_id'])) {
+    header('Location: login.php');
+    exit();
+}
+
+if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
+    header('Location: ' . ($_SESSION['role'] === 'admin' ? 'admin/dashboard.php' : 'registrar/dashboard.php'));
+    exit();
+}
+
+require_once 'config/db.php';
+require_once 'includes/activity_helper.php';
+require_once 'includes/settings_helper.php';
+require_once 'includes/permissions_helper.php';
+
+$error = '';
+$success = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $otp_input = trim($_POST['otp'] ?? '');
+    $user_id = $_SESSION['otp_user_id'];
+
+    if (empty($otp_input)) {
+        $error = "Please enter the verification code.";
+    } else {
+        try {
+            // Verify OTP: must match, not used, and not expired
+            $stmt = $conn->prepare("
+                SELECT id FROM public.user_otps_ums 
+                WHERE user_id = :uid 
+                AND otp_code = :otp 
+                AND is_used = 0 
+                AND expires_at > NOW() 
+                ORDER BY created_at DESC 
+                LIMIT 1
+            ");
+            $stmt->execute(['uid' => $user_id, 'otp' => $otp_input]);
+            $otp_row = $stmt->fetch();
+
+            if ($otp_row) {
+                // Mark OTP as used
+                $update = $conn->prepare("UPDATE public.user_otps_ums SET is_used = 1 WHERE id = ?");
+                $update->execute([$otp_row['id']]);
+
+                // ── RE-VERIFY USER STATUS ──
+                $status_stmt = $conn->prepare("SELECT status FROM public.users_ums WHERE id = ?");
+                $status_stmt->execute([$user_id]);
+                $user_status = $status_stmt->fetchColumn();
+
+                if ($user_status === false || strtolower(trim($user_status)) !== 'active') {
+                    // Log the attempt
+                    logActivity($user_id, 'login', 'Login blocked: Account status is ' . ($user_status ?: 'unknown') . '|' . $_SESSION['otp_email']);
+                    
+                    // Clear temp session data
+                    unset($_SESSION['otp_user_id'], $_SESSION['otp_email'], $_SESSION['otp_full_name'], $_SESSION['otp_role'], $_SESSION['otp_role_id']);
+                    
+                    $_SESSION['error'] = "Your account is no longer active. Please contact the administrator.";
+                    header('Location: login.php');
+                    exit();
+                }
+
+                // Complete login
+                $_SESSION['logged_in'] = true;
+                $_SESSION['role']      = $_SESSION['otp_role'];
+                $_SESSION['username']  = $_SESSION['otp_email'];
+                $_SESSION['full_name'] = $_SESSION['otp_full_name'];
+                $_SESSION['account_id'] = $_SESSION['otp_user_id'];
+                $_SESSION['role_id']    = $_SESSION['otp_role_id'];
+
+                // Fetch and store permissions
+                $_SESSION['permissions'] = fetchRolePermissions($conn, $_SESSION['otp_role_id']);
+
+                // Log OTP success
+                logActivity($user_id, 'login', '2FA OTP verified|' . $_SESSION['otp_email']);
+
+                // Clear temp session data
+                unset($_SESSION['otp_user_id'], $_SESSION['otp_email'], $_SESSION['otp_full_name'], $_SESSION['otp_role'], $_SESSION['otp_role_id']);
+
+                header('Location: ' . ($_SESSION['role'] === 'admin' ? 'admin/dashboard.php' : 'registrar/dashboard.php'));
+                exit();
+            } else {
+                // Log OTP failure
+                logActivity($user_id, 'login', 'Failed OTP verification|' . $_SESSION['otp_email']);
+                
+                // Track OTP failures if enabled
+                $max_otp_attempts = (int)getAuthSetting('reset_max_otp_attempts', '3'); // Reusing this for general OTP
+                
+                $count_stmt = $conn->prepare("
+                    SELECT COUNT(*) FROM public.activity_logs_ums 
+                    WHERE user_id = ? AND action LIKE 'Failed OTP verification%' 
+                    AND created_at > (SELECT created_at FROM public.user_otps_ums WHERE user_id = ? ORDER BY created_at DESC LIMIT 1)
+                ");
+                $count_stmt->execute([$user_id, $user_id]);
+                $otp_fail_count = $count_stmt->fetchColumn();
+
+                if ($otp_fail_count >= $max_otp_attempts) {
+                    // Lock account if too many OTP failures
+                    $duration = (int)getAuthSetting('lockout_duration', '30');
+                    $locked_until = date('Y-m-d H:i:s', strtotime("+$duration minutes"));
+                    
+                    $lock_stmt = $conn->prepare("UPDATE public.users_ums SET locked_until = ? WHERE id = ?");
+                    $lock_stmt->execute([$locked_until, $user_id]);
+                    
+                    logActivity($user_id, 'security', "Account locked until $locked_until due to $otp_fail_count failed OTP attempts");
+                    
+                    // Clear session and redirect to login
+                    unset($_SESSION['otp_user_id'], $_SESSION['otp_email']);
+                    $_SESSION['error'] = "Too many failed attempts. Your account has been locked for $duration minutes.";
+                    header('Location: login.php');
+                    exit();
+                }
+
+                $error = "Invalid or expired verification code. Attempts remaining: " . ($max_otp_attempts - $otp_fail_count);
+            }
+        } catch (PDOException $e) {
+            $error = "Verification Error: " . $e->getMessage();
+        }
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify OTP — ClassSync</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Syne:wght@700;800&display=swap">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+
+    <style>
+        *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+        :root {
+            --bg:       #0d1220;
+            --surface:  #101422;
+            --surface2: #161a2e;
+            --border:   rgba(255,255,255,0.06);
+            --accent:   #4fa3ff;
+            --text:     #e8eaf2;
+            --muted:    #4e5369;
+            --danger:   #ff5f5f;
+            --font-d:   'Syne', sans-serif;
+            --font-b:   'DM Sans', sans-serif;
+        }
+
+        body {
+            font-family: var(--font-b);
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .auth-card {
+            width: 100%;
+            max-width: 400px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 32px;
+            justify-content: center;
+        }
+        .brand-icon {
+            width: 32px; height: 32px; background: var(--accent);
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 15px; color: #fff;
+        }
+        .brand-name {
+            font-family: var(--font-d); font-size: 18px;
+            font-weight: 800; letter-spacing: -0.02em;
+        }
+
+        h1 { font-family: var(--font-d); font-size: 24px; font-weight: 800; text-align: center; margin-bottom: 8px; }
+        .subtitle { font-size: 14px; color: var(--muted); text-align: center; margin-bottom: 32px; line-height: 1.5; }
+        .subtitle b { color: var(--text); }
+
+        .field-group { margin-bottom: 24px; }
+        label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px; }
+        
+        .otp-input-wrap { position: relative; }
+        .otp-input-wrap input {
+            width: 100%;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 14px;
+            font-size: 24px;
+            font-weight: 700;
+            text-align: center;
+            letter-spacing: 8px;
+            color: var(--text);
+            transition: all 0.2s;
+        }
+        .otp-input-wrap input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px rgba(79,163,255,0.1);
+        }
+
+        .error-box {
+            background: rgba(255,95,95,0.08);
+            border: 1px solid rgba(255,95,95,0.18);
+            border-radius: 12px; padding: 12px 16px;
+            display: flex; align-items: center; gap: 10px;
+            font-size: 13px; color: var(--danger); margin-bottom: 20px;
+        }
+
+        .btn-verify {
+            width: 100%;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            padding: 14px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 8px 24px rgba(79,163,255,0.3);
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+        }
+        .btn-verify:hover {
+            background: #6db5ff;
+            transform: translateY(-1px);
+            box-shadow: 0 12px 32px rgba(79,163,255,0.45);
+        }
+
+        .back-link {
+            display: block;
+            text-align: center;
+            margin-top: 24px;
+            font-size: 13px;
+            color: var(--muted);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .back-link:hover { color: var(--accent); }
+    </style>
+</head>
+<body>
+
+<div class="auth-card">
+    <div class="brand">
+        <div class="brand-icon"><i class="bi bi-calendar2-week-fill"></i></div>
+        <div class="brand-name">ClassSync</div>
+    </div>
+
+    <h1>Verify Identity</h1>
+    <p class="subtitle">Enter the 6-digit code sent to<br><b><?= htmlspecialchars($_SESSION['otp_email']) ?></b></p>
+
+    <form method="POST">
+        <?php if ($error): ?>
+            <div class="error-box">
+                <i class="bi bi-exclamation-circle-fill"></i>
+                <?= htmlspecialchars($error) ?>
+            </div>
+        <?php endif; ?>
+
+        <div class="field-group">
+            <label>Verification Code</label>
+            <div class="otp-input-wrap">
+                <input type="text" name="otp" maxlength="6" pattern="\d{6}" inputmode="numeric" 
+                       placeholder="000000" required autofocus autocomplete="one-time-code">
+            </div>
+        </div>
+
+        <button type="submit" class="btn-verify">
+            Verify & Sign In <i class="bi bi-arrow-right"></i>
+        </button>
+    </form>
+
+    <a href="logout.php" class="back-link">
+        <i class="bi bi-arrow-left"></i> Back to Login
+    </a>
+</div>
+
+</body>
+</html>

@@ -1,6 +1,7 @@
 <?php
 require_once 'includes/auth.php';
 require_once '../config/db.php';
+require_once '../includes/permissions_helper.php';
 $page_title = 'Dashboard - Class Scheduling System';
 
 if (!$conn instanceof PDO) {
