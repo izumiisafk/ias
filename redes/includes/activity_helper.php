@@ -12,11 +12,11 @@ if (!function_exists('logActivity')) {
      * @param int|null $user_id The ID of the user (null for guest/unknown)
      * @param string $event_type The category of the event (e.g., 'login', 'security')
      * @param string $action Descriptive message of the action
-     * @param int $module_id Module ID (default 10: User Management)
+     * @param int $module_id Module ID (default 4: Authentication)
      * @param int $submodule_id Submodule ID (default 3: Authentication & Login Security)
      * @return bool Success or failure
      */
-    function logActivity($user_id, $event_type, $action, $module_id = 10, $submodule_id = 3) {
+    function logActivity($user_id, $event_type, $action, $module_id = 4, $submodule_id = 3) {
         global $conn;
         
         // Ensure connection exists

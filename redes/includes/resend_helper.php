@@ -6,9 +6,10 @@ require_once __DIR__ . '/../config/resend.php';
  * 
  * @param string $to The recipient email address
  * @param string $otp The 6-digit OTP code
+ * @param int $expiry_minutes Optional. Expiry time in minutes (default 5)
  * @return array Response from Resend API
  */
-function sendOTP($to, $otp) {
+function sendOTP($to, $otp, $expiry_minutes = 5) {
     if (RESEND_API_KEY === 're_your_api_key') {
         return ['error' => 'Resend API Key not configured.'];
     }
@@ -26,7 +27,7 @@ function sendOTP($to, $otp) {
                 <div style='font-size: 32px; font-weight: bold; letter-spacing: 5px; padding: 15px; background: #f4f4f4; border-radius: 8px; display: inline-block; margin: 10px 0;'>
                     $otp
                 </div>
-                <p>This code will expire in 5 minutes.</p>
+                <p>This code will expire in $expiry_minutes minutes.</p>
                 <p>If you did not request this code, please ignore this email.</p>
                 <hr style='border: none; border-top: 1px solid #eee; margin-top: 30px;'>
                 <p style='font-size: 12px; color: #888;'>&copy; 2025 " . RESEND_SENDER_NAME . ". All rights reserved.</p>

@@ -16,6 +16,8 @@ $hardcoded = [
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_once 'config/db.php';
     require_once 'includes/activity_helper.php';
+    require_once 'includes/settings_helper.php';
+    require_once 'includes/permissions_helper.php';
     $username = trim($_POST['username'] ?? '');
     $password = trim($_POST['password'] ?? '');
     $logged   = false;
@@ -29,6 +31,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         // Log hardcoded admin login
         logActivity(null, 'login', 'Successful login (Hardcoded Admin)|' . $username);
+
+        header('Location: ' . ($_SESSION['role'] === 'admin' ? 'admin/dashboard.php' : 'registrar/dashboard.php'));
+        exit();
     }
 
     if (!$logged && isset($conn)) {
@@ -45,42 +50,99 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->execute(['u' => $username]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if ($row && password_verify($password, $row['password_hash'])) {
-                // Log successful login (pre-OTP)
-                logActivity($row['id'], 'login', 'Successful login|' . $row['email']);
+            if ($row) {
+                // ── CHECK ACCOUNT LOCKOUT ──
+                if (getAuthSetting('account_lockout', '1') === '1') {
+                    if ($row['locked_until'] && strtotime($row['locked_until']) > time()) {
+                        $error = "Account is temporarily locked. Please try again later.";
+                        $logged = true; // Prevents further processing
+                    }
+                }
 
-                // Instead of logging in immediately, generate an OTP
-                $otp_code = str_pad(rand(0, 999999), 6, '0', STR_PAD_LEFT);
-                $expires_at = date('Y-m-d H:i:s', strtotime('+5 minutes'));
-                
-                try {
-                    // Store OTP in user_otps_ums
-                    $stmt_otp = $conn->prepare("INSERT INTO public.user_otps_ums (user_id, otp_code, expires_at) VALUES (?, ?, ?)");
-                    $stmt_otp->execute([$row['id'], $otp_code, $expires_at]);
+                if (!$error && password_verify($password, $row['password_hash'])) {
+                    // Reset failed attempts if we had a counter, but here we just proceed
                     
-                    // Send OTP via Resend
-                    require_once 'includes/resend_helper.php';
-                    $resend_result = sendOTP($row['email'], $otp_code);
+                    // ── CHECK 2FA SETTING ──
+                    if (getAuthSetting('two_factor_auth', '1') === '1') {
+                        // Log successful login (pre-OTP)
+                        logActivity($row['id'], 'login', 'Successful login|' . $row['email']);
+
+                        // Generate OTP
+                        $otp_code = str_pad(rand(0, 999999), 6, '0', STR_PAD_LEFT);
+                        $expires_at = date('Y-m-d H:i:s', strtotime('+5 minutes'));
+                        
+                        try {
+                            // Store OTP
+                            $stmt_otp = $conn->prepare("INSERT INTO public.user_otps_ums (user_id, otp_code, expires_at) VALUES (?, ?, ?)");
+                            $stmt_otp->execute([$row['id'], $otp_code, $expires_at]);
+                            
+                            // Send OTP
+                            require_once 'includes/resend_helper.php';
+                            $resend_result = sendOTP($row['email'], $otp_code);
+                            
+                            // Session setup
+                            $_SESSION['otp_user_id'] = $row['id'];
+                            $_SESSION['otp_email']   = $row['email'];
+                            $_SESSION['otp_full_name'] = $row['full_name'];
+                            $_SESSION['otp_role']      = strtolower($row['role_name']);
+                            $_SESSION['otp_role_id']   = $row['role_id'];
+                            if ($_SESSION['otp_role'] === 'administrator') $_SESSION['otp_role'] = 'admin';
+                            
+                            header('Location: otp_verify.php');
+                            exit();
+                        } catch (Exception $e) {
+                            $error = "OTP Error: " . $e->getMessage();
+                        }
+                    } else {
+                        // 2FA is DISABLED -> Log in immediately
+                        $_SESSION['logged_in'] = true;
+                        $_SESSION['role']      = strtolower($row['role_name']);
+                        if ($_SESSION['role'] === 'administrator') $_SESSION['role'] = 'admin';
+                        $_SESSION['username']  = $row['email'];
+                        $_SESSION['full_name'] = $row['full_name'];
+                        $_SESSION['account_id'] = $row['id'];
+                        $_SESSION['role_id']    = $row['role_id'];
+
+                        // Fetch and store permissions
+                        $_SESSION['permissions'] = fetchRolePermissions($conn, $row['role_id']);
+
+                        logActivity($row['id'], 'login', 'Successful login (2FA Disabled)|' . $row['email']);
+                        
+                        header('Location: ' . ($_SESSION['role'] === 'admin' ? 'admin/dashboard.php' : 'registrar/dashboard.php'));
+                        exit();
+                    }
+                } elseif (!$error) {
+                    // ── FAILED PASSWORD ──
+                    logActivity($row['id'], 'login', 'Failed login attempt (bad password)|' . $row['email']);
                     
-                    // Store temporary data in session
-                    $_SESSION['otp_user_id'] = $row['id'];
-                    $_SESSION['otp_email']   = $row['email'];
-                    $_SESSION['otp_full_name'] = $row['full_name'];
-                    $_SESSION['otp_role']      = strtolower($row['role_name']);
-                    if ($_SESSION['otp_role'] === 'administrator') $_SESSION['otp_role'] = 'admin';
-                    
-                    header('Location: otp_verify.php');
-                    exit();
-                } catch (Exception $e) {
-                    $error = "OTP Error: " . $e->getMessage();
+                    // Check if we should lock the account
+                    if (getAuthSetting('account_lockout', '1') === '1') {
+                        $max_attempts = (int)getAuthSetting('max_attempts', '5');
+                        
+                        // Count recent failures from logs
+                        $count_stmt = $conn->prepare("
+                            SELECT COUNT(*) FROM public.activity_logs_ums 
+                            WHERE user_id = ? AND event_type = 'login' 
+                            AND action LIKE 'Failed login attempt (bad password)%'
+                            AND created_at > NOW() - INTERVAL '30 minutes'
+                        ");
+                        $count_stmt->execute([$row['id']]);
+                        $fail_count = $count_stmt->fetchColumn();
+
+                        if ($fail_count >= $max_attempts) {
+                            $duration = (int)getAuthSetting('lockout_duration', '30'); // minutes
+                            $locked_until = date('Y-m-d H:i:s', strtotime("+$duration minutes"));
+                            
+                            $lock_stmt = $conn->prepare("UPDATE public.users_ums SET locked_until = ? WHERE id = ?");
+                            $lock_stmt->execute([$locked_until, $row['id']]);
+                            
+                            logActivity($row['id'], 'security', "Account locked until $locked_until due to $fail_count failed attempts");
+                            $error = "Too many failed attempts. Your account has been locked for $duration minutes.";
+                        }
+                    }
                 }
             } else {
-                // Log failed attempt
-                if ($row) {
-                    logActivity($row['id'], 'login', 'Failed login attempt (bad password)|' . $row['email']);
-                } else {
-                    logActivity(null, 'login', 'Failed login attempt (user not found)|' . $username);
-                }
+                logActivity(null, 'login', 'Failed login attempt (user not found)|' . $username);
             }
         } catch (PDOException $e) {
             $error = "Authentication Error: " . $e->getMessage();

@@ -14,6 +14,9 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
 
 require_once 'config/db.php';
 require_once 'includes/activity_helper.php';
+require_once 'includes/settings_helper.php';
+require_once 'includes/permissions_helper.php';
+
 $error = '';
 $success = '';
 
@@ -49,19 +52,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['username']  = $_SESSION['otp_email'];
                 $_SESSION['full_name'] = $_SESSION['otp_full_name'];
                 $_SESSION['account_id'] = $_SESSION['otp_user_id'];
+                $_SESSION['role_id']    = $_SESSION['otp_role_id'];
+
+                // Fetch and store permissions
+                $_SESSION['permissions'] = fetchRolePermissions($conn, $_SESSION['otp_role_id']);
 
                 // Log OTP success
                 logActivity($user_id, 'login', '2FA OTP verified|' . $_SESSION['otp_email']);
 
                 // Clear temp session data
-                unset($_SESSION['otp_user_id'], $_SESSION['otp_email'], $_SESSION['otp_full_name'], $_SESSION['otp_role']);
+                unset($_SESSION['otp_user_id'], $_SESSION['otp_email'], $_SESSION['otp_full_name'], $_SESSION['otp_role'], $_SESSION['otp_role_id']);
 
                 header('Location: ' . ($_SESSION['role'] === 'admin' ? 'admin/dashboard.php' : 'registrar/dashboard.php'));
                 exit();
             } else {
                 // Log OTP failure
                 logActivity($user_id, 'login', 'Failed OTP verification|' . $_SESSION['otp_email']);
-                $error = "Invalid or expired verification code.";
+                
+                // Track OTP failures if enabled
+                $max_otp_attempts = (int)getAuthSetting('reset_max_otp_attempts', '3'); // Reusing this for general OTP
+                
+                $count_stmt = $conn->prepare("
+                    SELECT COUNT(*) FROM public.activity_logs_ums 
+                    WHERE user_id = ? AND action LIKE 'Failed OTP verification%' 
+                    AND created_at > (SELECT created_at FROM public.user_otps_ums WHERE user_id = ? ORDER BY created_at DESC LIMIT 1)
+                ");
+                $count_stmt->execute([$user_id, $user_id]);
+                $otp_fail_count = $count_stmt->fetchColumn();
+
+                if ($otp_fail_count >= $max_otp_attempts) {
+                    // Lock account if too many OTP failures
+                    $duration = (int)getAuthSetting('lockout_duration', '30');
+                    $locked_until = date('Y-m-d H:i:s', strtotime("+$duration minutes"));
+                    
+                    $lock_stmt = $conn->prepare("UPDATE public.users_ums SET locked_until = ? WHERE id = ?");
+                    $lock_stmt->execute([$locked_until, $user_id]);
+                    
+                    logActivity($user_id, 'security', "Account locked until $locked_until due to $otp_fail_count failed OTP attempts");
+                    
+                    // Clear session and redirect to login
+                    unset($_SESSION['otp_user_id'], $_SESSION['otp_email']);
+                    $_SESSION['error'] = "Too many failed attempts. Your account has been locked for $duration minutes.";
+                    header('Location: login.php');
+                    exit();
+                }
+
+                $error = "Invalid or expired verification code. Attempts remaining: " . ($max_otp_attempts - $otp_fail_count);
             }
         } catch (PDOException $e) {
             $error = "Verification Error: " . $e->getMessage();
