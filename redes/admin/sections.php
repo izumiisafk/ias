@@ -353,10 +353,10 @@ if ($sub_res) {
 
 
 <!-- ================================================================
-     EDIT SECTION MODAL  (UNCHANGED)
+     EDIT SECTION MODAL
 ================================================================ -->
 <div class="modal fade" id="editSectionModal" tabindex="-1">
-<div class="modal-dialog">
+<div class="modal-dialog modal-lg">
 <div class="modal-content">
 <form method="POST">
 
@@ -368,53 +368,74 @@ if ($sub_res) {
 </div>
 
 <div class="modal-body">
+    <div class="row">
+        <div class="col-md-6">
 
-    <div class="mb-3">
-        <label class="form-label">Section Name</label>
-        <input type="text" id="edit_section_name" class="form-control" readonly>
+            <div class="mb-3">
+                <label class="form-label">Section Name</label>
+                <input type="text" id="edit_section_name" class="form-control" readonly>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Program</label>
+                <input type="text" id="edit_program_display" class="form-control" readonly>
+                <!-- hidden: stores raw program code for JS filtering -->
+                <input type="hidden" id="edit_program_code">
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Year Level</label>
+                <input type="text" id="edit_year_level" class="form-control" readonly>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Total Students</label>
+                <input type="number" id="edit_total_students" class="form-control" readonly>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Semester</label>
+                <input type="text" id="edit_term_label" class="form-control" readonly>
+                <input type="hidden" name="term_id" id="edit_term_id">
+            </div>
+
+            <!-- ADVISER — filtered by section's program -->
+            <div class="mb-3">
+                <label class="form-label">Adviser</label>
+                <select name="adviser_id" id="edit_adviser_id" class="form-select">
+                    <option value="">— No Adviser —</option>
+                </select>
+                <small id="edit_adviser_hint" class="text-muted mt-1 d-block"></small>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Status</label>
+                <select name="status" id="edit_status" class="form-select">
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive</option>
+                    <option value="Archived">Archived</option>
+                </select>
+            </div>
+
+        </div>
+
+        <!-- RIGHT COLUMN: SUBJECT PREVIEW -->
+        <div class="col-md-6">
+            <div class="subject-preview-panel">
+                <div class="subject-preview-header">
+                    <i class="bi bi-book-fill me-2" style="color:var(--accent);"></i>
+                    <span>Subjects for this Section</span>
+                    <span id="edit_subject_count_badge" class="subject-count-badge" style="display:none;"></span>
+                </div>
+                <div id="edit_subject_preview_body" class="subject-preview-body">
+                    <div class="subject-preview-empty">
+                        <i class="bi bi-journal-x" style="font-size:28px; color:var(--text-secondary); opacity:0.4;"></i>
+                        <p>Loading subjects…</p>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
-
-    <div class="mb-3">
-        <label class="form-label">Program</label>
-        <input type="text" id="edit_program_display" class="form-control" readonly>
-        <!-- hidden: stores raw program code for JS filtering -->
-        <input type="hidden" id="edit_program_code">
-    </div>
-
-    <div class="mb-3">
-        <label class="form-label">Year Level</label>
-        <input type="text" id="edit_year_level" class="form-control" readonly>
-    </div>
-
-    <div class="mb-3">
-        <label class="form-label">Total Students</label>
-        <input type="number" id="edit_total_students" class="form-control" readonly>
-    </div>
-
-    <div class="mb-3">
-        <label class="form-label">Semester</label>
-        <input type="text" id="edit_term_label" class="form-control" readonly>
-        <input type="hidden" name="term_id" id="edit_term_id">
-    </div>
-
-    <!-- ADVISER — filtered by section's program -->
-    <div class="mb-3">
-        <label class="form-label">Adviser</label>
-        <select name="adviser_id" id="edit_adviser_id" class="form-select">
-            <option value="">— No Adviser —</option>
-        </select>
-        <small id="edit_adviser_hint" class="text-muted mt-1 d-block"></small>
-    </div>
-
-    <div class="mb-3">
-        <label class="form-label">Status</label>
-        <select name="status" id="edit_status" class="form-select">
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
-            <option value="Archived">Archived</option>
-        </select>
-    </div>
-
 </div>
 
 <div class="modal-footer">
@@ -576,20 +597,12 @@ const PROGRAM_TO_SUBJECT_DEPT = {
 };
 
 /**
- * Filter and display subjects in the preview panel
- * based on selected program, year level, and semester.
+ * Render subjects into any preview panel by element IDs.
  */
-function filterSubjects() {
-    const program   = document.getElementById('add_program').value;
-    const yearLevel = document.getElementById('year_level').value;
-    const semSelect = document.getElementById('semester');
-    const semOpt    = semSelect.options[semSelect.selectedIndex];
-    const semLabel  = semOpt ? semOpt.getAttribute('data-semlabel') : '';
+function renderSubjectPreview(program, yearLevel, semLabel, bodyId, badgeId) {
+    const body  = document.getElementById(bodyId);
+    const badge = document.getElementById(badgeId);
 
-    const body  = document.getElementById('subject_preview_body');
-    const badge = document.getElementById('subject_count_badge');
-
-    // Not enough selected yet
     if (!program || !yearLevel || !semLabel) {
         badge.style.display = 'none';
         body.innerHTML = `
@@ -600,15 +613,11 @@ function filterSubjects() {
         return;
     }
 
-    // Build year_level filter string as stored in subjects table
-    // e.g. "2nd Year" + "2nd Sem" → matches "2nd Year (2nd Sem)"
-    const yearNum  = yearLevel.replace(' Year', '');   // "2nd"
-    const semNum   = semLabel.replace(' Sem', '');     // "2nd"
-    const yearKey  = yearNum + ' Year (' + semNum + ' Sem)'; // "2nd Year (2nd Sem)"
-
+    const yearNum  = yearLevel.replace(' Year', '');
+    const semNum   = semLabel.replace(' Sem', '');
+    const yearKey  = yearNum + ' Year (' + semNum + ' Sem)';
     const subjectDept = PROGRAM_TO_SUBJECT_DEPT[program] ?? '';
 
-    // Filter subjects
     const filtered = ALL_SUBJECTS.filter(sub =>
         sub.department.trim() === subjectDept.trim() &&
         sub.year_level.trim() === yearKey.trim()
@@ -624,11 +633,9 @@ function filterSubjects() {
         return;
     }
 
-    // Show count badge
     badge.textContent   = filtered.length + ' subjects';
     badge.style.display = 'inline-block';
 
-    // Render subject list
     let html = '';
     filtered.forEach(sub => {
         html += `
@@ -639,6 +646,19 @@ function filterSubjects() {
             </div>`;
     });
     body.innerHTML = html;
+}
+
+/**
+ * Filter and display subjects in the ADD preview panel.
+ */
+function filterSubjects() {
+    const program   = document.getElementById('add_program').value;
+    const yearLevel = document.getElementById('year_level').value;
+    const semSelect = document.getElementById('semester');
+    const semOpt    = semSelect.options[semSelect.selectedIndex];
+    const semLabel  = semOpt ? semOpt.getAttribute('data-semlabel') : '';
+
+    renderSubjectPreview(program, yearLevel, semLabel, 'subject_preview_body', 'subject_count_badge');
 }
 
 /**
@@ -700,6 +720,13 @@ function openEditSection(s) {
 
     // Filter advisers and pre-select current adviser
     filterAdviser('edit', s.adviser_id ?? '', s.program);
+
+    // ── Derive semLabel from term_semester for subject preview ──
+    let semLabel = '';
+    if (s.term_semester) {
+        semLabel = s.term_semester.indexOf('1st') !== -1 ? '1st Sem' : '2nd Sem';
+    }
+    renderSubjectPreview(s.program, s.year_level, semLabel, 'edit_subject_preview_body', 'edit_subject_count_badge');
 
     new bootstrap.Modal(document.getElementById('editSectionModal')).show();
 }
