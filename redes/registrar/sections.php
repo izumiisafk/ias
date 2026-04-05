@@ -47,6 +47,15 @@ if (isset($_GET['error']))  $error_msg = 'Failed to update section. Please try a
 // ================================================================
 $all_faculty_js = $conn->query("SELECT faculty_id, first_name, last_name, department FROM faculty WHERE status='Active' ORDER BY last_name, first_name")->fetchAll();
 
+// ================================================================
+// FETCH ALL SUBJECTS (for subject preview panel)
+// ================================================================
+$all_subjects_js = [];
+$sub_res = $conn->query("SELECT subject_id, subject_code, subject_name, units, year_level, department FROM subjects WHERE status='Active' ORDER BY subject_code");
+if ($sub_res) {
+    while ($sub = $sub_res->fetch()) $all_subjects_js[] = $sub;
+}
+
 $programNames = [
     'BSIT'   => 'BS Information Technology',
     'BSTM'   => 'BS Tourism Management',
@@ -175,7 +184,7 @@ $programNames = [
      EDIT SECTION MODAL (Registrar — limited fields)
 ================================================================ -->
 <div class="modal fade" id="editSectionModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <form method="POST">
                 <input type="hidden" name="section_id" id="edit_section_id">
@@ -184,59 +193,80 @@ $programNames = [
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
 
-                    <!-- READONLY INFO (cannot be changed by registrar) -->
-                    <div class="p-3 mb-3 rounded" style="background:var(--color-surface2); border:1px solid var(--color-border);">
-                        <div style="font-size:11px; font-weight:700; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.07em; margin-bottom:8px;">
-                            <i class="bi bi-lock-fill me-1"></i>Read-Only (Admin Only)
+                            <!-- READONLY INFO (cannot be changed by registrar) -->
+                            <div class="p-3 mb-3 rounded" style="background:var(--color-surface2); border:1px solid var(--color-border);">
+                                <div style="font-size:11px; font-weight:700; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.07em; margin-bottom:8px;">
+                                    <i class="bi bi-lock-fill me-1"></i>Read-Only (Admin Only)
+                                </div>
+                                <div class="row g-2">
+                                    <div class="col-md-6">
+                                        <label class="form-label" style="font-size:11px;">Section Name</label>
+                                        <input type="text" id="edit_section_name" class="form-control form-control-sm" readonly
+                                            style="background:transparent; cursor:not-allowed;">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label" style="font-size:11px;">Program</label>
+                                        <input type="text" id="edit_program_display" class="form-control form-control-sm" readonly
+                                            style="background:transparent; cursor:not-allowed;">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label" style="font-size:11px;">Year Level</label>
+                                        <input type="text" id="edit_year_level" class="form-control form-control-sm" readonly
+                                            style="background:transparent; cursor:not-allowed;">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label" style="font-size:11px;">Academic Term</label>
+                                        <input type="text" id="edit_term_label" class="form-control form-control-sm" readonly
+                                            style="background:transparent; cursor:not-allowed;">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- EDITABLE FIELDS -->
+                            <div class="mb-3">
+                                <label class="form-label">Total Students</label>
+                                <input type="number" name="total_students" id="edit_total_students" class="form-control" min="0" max="60">
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Adviser</label>
+                                <select name="adviser_id" id="edit_adviser_id" class="form-select">
+                                    <option value="">— No Adviser —</option>
+                                </select>
+                                <small id="edit_adviser_hint" class="text-muted d-block mt-1"></small>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Status</label>
+                                <select name="status" id="edit_status" class="form-select">
+                                    <option value="Active">Active</option>
+                                    <option value="Inactive">Inactive</option>
+                                    <option value="Archived">Archived</option>
+                                </select>
+                            </div>
+
                         </div>
-                        <div class="row g-2">
-                            <div class="col-md-6">
-                                <label class="form-label" style="font-size:11px;">Section Name</label>
-                                <input type="text" id="edit_section_name" class="form-control form-control-sm" readonly
-                                    style="background:transparent; cursor:not-allowed;">
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label" style="font-size:11px;">Program</label>
-                                <input type="text" id="edit_program_display" class="form-control form-control-sm" readonly
-                                    style="background:transparent; cursor:not-allowed;">
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label" style="font-size:11px;">Year Level</label>
-                                <input type="text" id="edit_year_level" class="form-control form-control-sm" readonly
-                                    style="background:transparent; cursor:not-allowed;">
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label" style="font-size:11px;">Academic Term</label>
-                                <input type="text" id="edit_term_label" class="form-control form-control-sm" readonly
-                                    style="background:transparent; cursor:not-allowed;">
+
+                        <!-- RIGHT COLUMN: SUBJECT PREVIEW -->
+                        <div class="col-md-6">
+                            <div class="subject-preview-panel">
+                                <div class="subject-preview-header">
+                                    <i class="bi bi-book-fill me-2" style="color:var(--accent);"></i>
+                                    <span>Subjects for this Section</span>
+                                    <span id="edit_subject_count_badge" class="subject-count-badge" style="display:none;"></span>
+                                </div>
+                                <div id="edit_subject_preview_body" class="subject-preview-body">
+                                    <div class="subject-preview-empty">
+                                        <i class="bi bi-journal-x" style="font-size:28px; color:var(--text-secondary); opacity:0.4;"></i>
+                                        <p>Loading subjects…</p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
-
-                    <!-- EDITABLE FIELDS -->
-                    <div class="mb-3">
-                        <label class="form-label">Total Students</label>
-                        <input type="number" name="total_students" id="edit_total_students" class="form-control" min="0" max="60">
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Adviser</label>
-                        <select name="adviser_id" id="edit_adviser_id" class="form-select">
-                            <option value="">— No Adviser —</option>
-                        </select>
-                        <small id="edit_adviser_hint" class="text-muted d-block mt-1"></small>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Status</label>
-                        <select name="status" id="edit_status" class="form-select">
-                            <option value="Active">Active</option>
-                            <option value="Inactive">Inactive</option>
-                            <option value="Archived">Archived</option>
-                        </select>
-                    </div>
-
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn-secondary-custom" data-bs-dismiss="modal">Cancel</button>
@@ -249,8 +279,116 @@ $programNames = [
     </div>
 </div>
 
+<style>
+.registrar-access-badge {
+    background: rgba(79,163,255,0.1); border: 1px solid rgba(79,163,255,0.25);
+    color: var(--accent); padding: 7px 14px; border-radius: 8px;
+    font-size: 12px; font-weight: 700;
+}
+/* ── Subject Preview Panel ── */
+.subject-preview-panel {
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    overflow: hidden;
+    height: 100%;
+    min-height: 380px;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-surface);
+}
+.subject-preview-header {
+    background: var(--color-surface2);
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    border-bottom: 1px solid var(--color-border);
+    flex-shrink: 0;
+}
+.subject-count-badge {
+    margin-left: auto;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 20px;
+    padding: 1px 9px;
+    font-size: 11px;
+    font-weight: 700;
+}
+.subject-preview-body {
+    flex: 1;
+    overflow-y: auto;
+    max-height: 340px;
+    padding: 8px 0;
+}
+.subject-preview-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 280px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-align: center;
+    gap: 10px;
+    padding: 20px;
+}
+.subject-preview-empty p { margin: 0; line-height: 1.6; }
+.subject-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 7px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 12px;
+}
+.subject-item:last-child { border-bottom: none; }
+.subject-item:hover { background: rgba(255,255,255,0.03); }
+.subject-code {
+    background: rgba(79,163,255,0.12);
+    color: var(--accent);
+    border-radius: 5px;
+    padding: 2px 7px;
+    font-size: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+.subject-name {
+    color: var(--text-primary);
+    font-weight: 500;
+    line-height: 1.4;
+    flex: 1;
+}
+.subject-units {
+    color: var(--text-secondary);
+    font-size: 10px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+.subject-no-results {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-align: center;
+    gap: 8px;
+    padding: 20px;
+}
+</style>
+
 <script>
 const ALL_FACULTY = <?= json_encode($all_faculty_js) ?>;
+const ALL_SUBJECTS = <?= json_encode($all_subjects_js) ?>;
+
 const PROGRAM_TO_DEPT = {
     'BSIT':   'College of Computer Studies (CCS)',
     'BSTM':   'College of Hospitality and Tourism Management (CHTM)',
@@ -261,7 +399,66 @@ const PROGRAM_TO_DEPT = {
 const PROGRAM_TO_SHORT = {
     'BSIT':'CCS Dept','BSTM':'CHTM Dept','BSBA':'CBA Dept','BSCRIM':'CCJE Dept','BSCE':'COE Dept'
 };
+const PROGRAM_TO_SUBJECT_DEPT = {
+    'BSIT':   'BS Information Technology',
+    'BSTM':   'BS Tourism Management',
+    'BSBA':   'BS Business Administration',
+    'BSCRIM': 'BS Criminology',
+    'BSCE':   'BS Civil Engineering'
+};
 const PROGRAM_NAMES = <?= json_encode($programNames) ?>;
+
+/**
+ * Render subjects into the edit preview panel.
+ */
+function renderSubjectPreview(program, yearLevel, semLabel) {
+    const body  = document.getElementById('edit_subject_preview_body');
+    const badge = document.getElementById('edit_subject_count_badge');
+
+    if (!program || !yearLevel || !semLabel) {
+        badge.style.display = 'none';
+        body.innerHTML = `
+            <div class="subject-preview-empty">
+                <i class="bi bi-journal-x" style="font-size:28px; color:var(--text-secondary); opacity:0.4;"></i>
+                <p>No subject data available.</p>
+            </div>`;
+        return;
+    }
+
+    const yearNum     = yearLevel.replace(' Year', '');
+    const semNum      = semLabel.replace(' Sem', '');
+    const yearKey     = yearNum + ' Year (' + semNum + ' Sem)';
+    const subjectDept = PROGRAM_TO_SUBJECT_DEPT[program] ?? '';
+
+    const filtered = ALL_SUBJECTS.filter(sub =>
+        sub.department.trim() === subjectDept.trim() &&
+        sub.year_level.trim() === yearKey.trim()
+    );
+
+    if (filtered.length === 0) {
+        badge.style.display = 'none';
+        body.innerHTML = `
+            <div class="subject-no-results">
+                <i class="bi bi-exclamation-circle" style="font-size:24px; color:#f59e0b;"></i>
+                <p>No subjects found for<br><strong>${yearLevel} — ${semLabel}</strong><br>in ${subjectDept}.</p>
+            </div>`;
+        return;
+    }
+
+    badge.textContent   = filtered.length + ' subjects';
+    badge.style.display = 'inline-block';
+
+    let html = '';
+    filtered.forEach(sub => {
+        html += `
+            <div class="subject-item">
+                <span class="subject-code">${sub.subject_code}</span>
+                <span class="subject-name">${sub.subject_name}</span>
+                <span class="subject-units">${sub.units} units</span>
+            </div>`;
+    });
+    body.innerHTML = html;
+}
 
 function filterAdviserDropdown(programCode, selectedId) {
     const sel  = document.getElementById('edit_adviser_id');
@@ -293,6 +490,14 @@ function openEditSection(s) {
     document.getElementById('edit_status').value        = s.status;
 
     filterAdviserDropdown(s.program, s.adviser_id ?? '');
+
+    // ── Derive semLabel from term_semester for subject preview ──
+    let semLabel = '';
+    if (s.term_semester) {
+        semLabel = s.term_semester.indexOf('1st') !== -1 ? '1st Sem' : '2nd Sem';
+    }
+    renderSubjectPreview(s.program, s.year_level, semLabel);
+
     new bootstrap.Modal(document.getElementById('editSectionModal')).show();
 }
 
@@ -310,13 +515,5 @@ function filterSections() {
         (vis === 0 && q.length > 0) ? 'block' : 'none';
 }
 </script>
-
-<style>
-.registrar-access-badge {
-    background: rgba(79,163,255,0.1); border: 1px solid rgba(79,163,255,0.25);
-    color: var(--accent); padding: 7px 14px; border-radius: 8px;
-    font-size: 12px; font-weight: 700;
-}
-</style>
 
 <?php include '../includes/footer.php'; ?>
