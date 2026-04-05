@@ -46,6 +46,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $update = $conn->prepare("UPDATE public.user_otps_ums SET is_used = 1 WHERE id = ?");
                 $update->execute([$otp_row['id']]);
 
+                // ── RE-VERIFY USER STATUS ──
+                $status_stmt = $conn->prepare("SELECT status FROM public.users_ums WHERE id = ?");
+                $status_stmt->execute([$user_id]);
+                $user_status = $status_stmt->fetchColumn();
+
+                if ($user_status === false || strtolower(trim($user_status)) !== 'active') {
+                    // Log the attempt
+                    logActivity($user_id, 'login', 'Login blocked: Account status is ' . ($user_status ?: 'unknown') . '|' . $_SESSION['otp_email']);
+                    
+                    // Clear temp session data
+                    unset($_SESSION['otp_user_id'], $_SESSION['otp_email'], $_SESSION['otp_full_name'], $_SESSION['otp_role'], $_SESSION['otp_role_id']);
+                    
+                    $_SESSION['error'] = "Your account is no longer active. Please contact the administrator.";
+                    header('Location: login.php');
+                    exit();
+                }
+
                 // Complete login
                 $_SESSION['logged_in'] = true;
                 $_SESSION['role']      = $_SESSION['otp_role'];

@@ -6,7 +6,8 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
     exit();
 }
 
-$error = '';
+$error = $_GET['error'] ?? $_SESSION['error'] ?? '';
+if (isset($_SESSION['error'])) unset($_SESSION['error']);
 $db_error = ''; 
 
 $hardcoded = [
@@ -21,6 +22,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = trim($_POST['username'] ?? '');
     $password = trim($_POST['password'] ?? '');
     $logged   = false;
+
+    // VERY IMPORTANT: Clear any GET error from the URL before processing a new login attempt
+    $error = '';
 
     if (isset($hardcoded[$username]) && $hardcoded[$username]['password'] === $password) {
         $_SESSION['logged_in'] = true;
